@@ -1,0 +1,14 @@
+{
+    "mcpServers":  {
+                       "steward":  {
+                                       "args":  [
+                                                    "F:\\workspace\\codex-steward\\plugins\\personal-steward\\dist\\mcp.mjs"
+                                                ],
+                                       "env":  {
+                                                   "STEWARD_WORKSPACE":  "F:\\workspace",
+                                                   "STEWARD_DATA_DIR":  "F:\\workspace\\codex-steward\\data"
+                                               },
+                                       "command":  "C:\\Program Files\\nodejs\\node.exe"
+                                   }
+                   }
+}

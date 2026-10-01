@@ -1,0 +1,10 @@
+{
+  "name": "ling-local",
+  "interface": { "displayName": "Ling 本地插件" },
+  "plugins": [{
+    "name": "personal-steward",
+    "source": { "source": "local", "path": "./plugins/personal-steward" },
+    "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+    "category": "Productivity"
+  }]
+}

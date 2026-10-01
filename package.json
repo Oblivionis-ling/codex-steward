@@ -1,0 +1,28 @@
+{
+  "name": "codex-steward",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node src/server/http.mjs",
+    "mcp": "node src/server/mcp.mjs",
+    "test": "node --test test/*.test.mjs",
+    "install:codex": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openai/mcp-extensions": "^0.1.0",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.2.0",
+    "esbuild": "^0.27.3",
+    "vite": "^8.0.0",
+    "vite-plugin-singlefile": "^2.3.2"
+  }
+}

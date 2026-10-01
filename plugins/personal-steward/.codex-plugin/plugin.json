@@ -1,0 +1,16 @@
+{
+  "name": "personal-steward",
+  "version": "0.1.0",
+  "description": "本地记录、资料和待办；AI 归档、引用问答、阶段回顾；从待办开始 Codex 聊天。",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "个人管家",
+    "shortDescription": "记下来，整理好，接着去做。",
+    "longDescription": "在 Codex 左侧打开个人信息库。想法、资料、待办保存在本机 JSON 文件中；使用当前 Codex 聊天或自选模型进行整理与回顾。",
+    "developerName": "Ling",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "brandColor": "#36584b",
+    "defaultPrompt": ["打开个人管家", "整理我尚未归档的记录", "回顾我最近一周的记录"]
+  }
+}

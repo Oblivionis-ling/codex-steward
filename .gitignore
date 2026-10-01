@@ -1,0 +1,10 @@
+node_modules/
+data/
+_work/
+plugins/personal-steward/dist/
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+*.pid
