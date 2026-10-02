@@ -20,7 +20,7 @@ export function TaskDetail({ task, project, data, initialTab = 'description', cl
   return <Overlay title={task.title} subtitle={`项目：${project.title}`} close={close} className="drawer task-drawer"><div className="drawer-body">
     <div className="detail-tabs" role="tablist">{Object.entries({ description: '任务说明', acceptance: '验收与成果', materials: '资料' }).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}<button onClick={() => openChat(task.id)}><Icon as={MessageSquare} size={14}/>主聊天</button></div>
     <div className="task-detail-status"><span className={`phase-label ${task.phase}`}>{PHASE_NAMES[task.phase]}</span><span>{EXEC_NAMES[task.execution]}</span></div>
-    {task.error && <p className="inline-error" role="alert">{task.error}</p>}
+    {task.error && <p className={`inline-error ${task.execution === 'blocked' ? 'blocked-text' : ''}`} role="alert">{task.error}</p>}
     {tab === 'description' && <><label>任务名称<input value={title} maxLength={240} disabled={locked} onChange={(e) => edit(setTitle, e.target.value)}/></label><label>任务说明<textarea className="goal-text" value={description} maxLength={30000} disabled={locked} placeholder="目标、工作范围与预期交付…" onChange={(e) => edit(setDescription, e.target.value)}/></label><Button disabled={busy || locked || !title.trim()} onClick={save}>保存说明</Button><p className="setting-note">启动时使用这里保存的说明与已确认的验收标准。</p></>}
     {tab === 'acceptance' && <>
       <p className="setting-note">{task.phase === 'ready' ? '确认验收标准后即可开始。' : task.phase === 'review' ? '检查交付证据，通过后结项；需要调整时填写修改意见。' : task.progress || '先拟定验收标准，再推进任务。'}</p>

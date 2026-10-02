@@ -192,3 +192,71 @@ test('备份合并可重复恢复小卡，不恢复执行且拒绝主聊天冲�
   const invalid = structuredClone(backup); invalid.tasks[0].mainChatId = 'shared'; invalid.tasks.push({ ...invalid.tasks[0], id: 'another-card' });
   await assert.rejects(restored.call('steward_import', { data: invalid }), /同一主聊天/); assert.equal((await restored.current()).tasks.length, 1);
 });
+
+async function occupiedSetup() {
+  const context = await setup(), { service, runtime, project } = context, id = await ready(service, project.id);
+  await service.call('steward_task_confirm', { id });
+  runtime.threads.set('desktop-chat', { id: 'desktop-chat', name: '历史主聊天', turns: [{ id: 'history-turn', status: 'completed', items: [{ id: 'history-item', type: 'agentMessage', text: '已有任务上下文' }] }] });
+  await service.call('steward_chat_attach', { taskId: id, chatId: 'desktop-chat', main: true }); runtime.busyChats.add('desktop-chat');
+  return { ...context, id };
+}
+
+test('拖入进行中遇到 writer 占用时保留大小卡阶段、标准和聊天，不启动或自动 fork', async () => {
+  const { service, runtime, id } = await occupiedSetup(), before = await service.current();
+  const result = await service.call('steward_task_move', { id, phase: 'active', expectedPhase: 'ready' });
+  assert.equal(result.blocked, true); assert.match(result.message, /尚未启动/); assert.ok(!result.message.includes('desktop-chat'));
+  const state = await service.current(); assert.equal(state.projects[0].phase, before.projects[0].phase);
+  for (const key of ['phase', 'confirmedHash', 'mainChatId', 'runId', 'turnId', 'deliveryHash']) assert.deepEqual(state.tasks[0][key], before.tasks[0][key]);
+  assert.equal(state.tasks[0].execution, 'blocked'); assert.equal(runtime.starts.length, 0); assert.equal(runtime.forks.length, 0);
+  await assert.rejects(service.call('steward_chat_send', { taskId: id, message: '继续' }), /处理主聊天占用/);
+});
+
+test('待验收返工的占用保留历史成果、标准与修改意见，重试发送同一主聊天', async () => {
+  const { service, runtime, project } = await setup(), id = await ready(service, project.id);
+  await service.call('steward_task_confirm', { id }); const { task } = await service.call('steward_task_start', { id }); await deliver(service, runtime, task);
+  const before = (await service.current()).tasks[0]; runtime.busyChats.add(task.mainChatId);
+  const result = await service.call('steward_task_start', { id, feedback: '请修正布局并保留旧成果' }); assert.equal(result.blocked, true);
+  await service.call('steward_task_start', { id }); const blocked = (await service.current()).tasks[0];
+  for (const key of ['phase', 'runId', 'turnId', 'delivery', 'deliveryHash', 'confirmedHash', 'mainChatId']) assert.deepEqual(blocked[key], before[key]);
+  assert.equal(blocked.blockedRequest.feedback, '请修正布局并保留旧成果');
+  await assert.rejects(service.call('steward_task_report', { id, runId: before.runId, state: 'running', progress: '旧回写' }), /过期/);
+  runtime.busyChats.clear(); const resumed = await service.call('steward_task_start', { id }); assert.equal(resumed.task.mainChatId, before.mainChatId);
+  assert.equal(resumed.task.execution, 'running'); assert.equal(resumed.task.blockedRequest, null); assert.match(runtime.starts.at(-1).prompt, /请修正布局并保留旧成果/);
+});
+
+test('确认接续只 fork 一次，历史和原主聊天保留，后续继续新主聊天', async () => {
+  const { service, runtime, id } = await occupiedSetup(); const { task } = await service.call('steward_task_start', { id });
+  const confirmation = { id, expectedMainChatId: task.mainChatId, expectedHash: task.confirmedHash };
+  const results = await Promise.allSettled([service.call('steward_task_continue', confirmation), service.call('steward_task_continue', confirmation)]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1); assert.equal(runtime.forks.length, 1); assert.equal(runtime.starts.length, 1);
+  const current = (await service.current()).tasks[0]; assert.notEqual(current.mainChatId, 'desktop-chat'); assert.deepEqual(current.relatedChatIds, ['desktop-chat']);
+  assert.match(current.progress, /任务已发送/); assert.ok(!current.progress.includes('尚未发送'));
+  assert.equal(runtime.threads.get(current.mainChatId).turns[0].items[0].text, '已有任务上下文'); assert.equal(runtime.threads.get('desktop-chat').turns.length, 1);
+  runtime.complete(current.mainChatId); await service.board.flush(); await service.call('steward_task_start', { id });
+  assert.equal(runtime.starts.at(-1).chatId, current.mainChatId); assert.equal(runtime.forks.length, 1);
+});
+
+test('接续确认过期和原聊天仍在执行时不创建、不推进，编辑目标清除待发请求', async () => {
+  const { service, runtime, id } = await occupiedSetup(); const { task } = await service.call('steward_task_start', { id });
+  const confirmation = { id, expectedMainChatId: task.mainChatId, expectedHash: task.confirmedHash };
+  await assert.rejects(service.call('steward_task_continue', { ...confirmation, expectedMainChatId: 'stale' }), /已变化/);
+  await assert.rejects(service.call('steward_task_continue', { ...confirmation, expectedHash: 'stale' }), /已变化/);
+  runtime.threads.get('desktop-chat').turns.at(-1).status = 'inProgress';
+  const result = await service.call('steward_task_continue', confirmation); assert.equal(result.blocked, true); assert.equal(result.task.blockedRequest.reason, 'active');
+  assert.equal(runtime.forks.length, 0); assert.equal(runtime.starts.length, 0); assert.equal(result.task.phase, 'ready');
+  await service.call('steward_task_update', { id, title: task.title, description: '新目标', criteria: task.criteria });
+  const edited = (await service.current()).tasks[0]; assert.equal(edited.blockedRequest, null); assert.equal(edited.execution, 'idle'); assert.equal(edited.confirmedHash, null);
+  await assert.rejects(service.call('steward_task_continue', confirmation), /确认当前/);
+});
+
+test('旧版本失败 writer 无执行回合时迁为占用，不恢复或重发任务；备份导入清除待发请求', async () => {
+  const { service, runtime, dataDir, id } = await occupiedSetup();
+  await service.store.mutate((state) => { const task = state.tasks[0]; task.execution = 'failed'; task.runId = 'never-started'; task.error = 'thread desktop-chat already has an active writer'; });
+  const recovered = createService({ dataDir, runtime }); const task = (await recovered.current()).tasks[0];
+  assert.equal(task.id, id); assert.equal(task.execution, 'blocked'); assert.equal(task.runId, null); assert.equal(task.phase, 'ready'); assert.equal(runtime.starts.length, 0);
+  await recovered.store.mutate((state) => { state.tasks[0].blockedRequest.message = '待发补充说明'; });
+  const backup = (await recovered.call('steward_export')).data;
+  const importDir = await fs.mkdtemp(path.resolve('_work/import-conflict-')); const imported = createService({ dataDir: importDir, runtime: new MockCodex() });
+  await imported.call('steward_import', { data: backup }); const restored = (await imported.current()).tasks[0];
+  assert.equal(restored.execution, 'idle'); assert.equal(restored.blockedRequest, null); assert.equal(restored.mainChatId, task.mainChatId);
+});

@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { CodexConnection } from '../src/server/codex.mjs';
 
-function transport() {
+function transport(route = () => undefined) {
   const messages = [], children = [];
   const spawnProcess = () => {
     const child = new EventEmitter(); child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
@@ -13,8 +13,9 @@ function transport() {
     child.stdin.on('data', (bytes) => {
       const message = JSON.parse(bytes.toString()); messages.push(message);
       if (!message.method || message.id === undefined) return;
-      const results = { initialize: {}, 'account/read': { account: { type: 'chatgpt' } }, 'thread/start': { thread: { id: 'chat', status: { type: 'idle' } } }, 'thread/resume': { thread: { id: 'chat', status: { type: 'idle' } } }, 'thread/name/set': {}, 'turn/start': { turn: { id: 'turn', status: 'inProgress' } }, 'turn/interrupt': {} };
-      queueMicrotask(() => child.send(message.method in results ? { id: message.id, result: results[message.method] } : { id: message.id, error: { code: -32000, message: '服务器拒绝操作' } }));
+      const results = { initialize: {}, 'account/read': { account: { type: 'chatgpt' } }, 'thread/start': { thread: { id: 'chat', status: { type: 'idle' } } }, 'thread/resume': { thread: { id: 'chat', status: { type: 'idle' } } }, 'thread/read': { thread: { id: 'chat', status: { type: 'notLoaded' }, turns: [{ id: 'old-turn', status: 'completed', items: [] }] } }, 'thread/fork': { thread: { id: 'fork-chat', status: { type: 'idle' } } }, 'thread/name/set': {}, 'thread/unsubscribe': { status: 'unsubscribed' }, 'turn/start': { turn: { id: 'turn', status: 'inProgress' } }, 'turn/interrupt': {} };
+      const response = route(message, child); if (response === null) return;
+      queueMicrotask(() => child.send({ id: message.id, ...(response || (message.method in results ? { result: results[message.method] } : { error: { code: -32000, message: '服务器拒绝操作' } })) }));
     });
     children.push(child); return child;
   };
@@ -81,4 +82,49 @@ test('标题搜索忽略英文大小写，用户分页使用稳定快照，新�
   await assert.rejects(runtime.list({ cursor: first.nextCursor, search: 'other' }), /重新读取/);
   assert.equal((await runtime.list({ search: 'codex' })).total, 36);
   runtime.call = async () => ({ data: [], nextCursor: 'repeated' }); await assert.rejects(runtime.list(), /分页没有继续/);
+});
+
+test('已有 writer 的恢复和启动返回可处理占用；真实 RPC 失败保留原错误', async (t) => {
+  let blockedMethod = 'thread/resume';
+  const { runtime, messages } = transport((m) => m.method === blockedMethod ? { error: { code: -32600, message: 'thread chat already has an active writer' } } : undefined);
+  t.after(() => runtime.close());
+  await assert.rejects(runtime.thread('chat', '任务'), (e) => e.code === 'CHAT_BUSY' && e.reason === 'writer' && !e.message.includes('already has'));
+  assert.equal(runtime.preparingThreads.size, 0); assert.ok(!messages.some((m) => m.method === 'turn/start'));
+  blockedMethod = 'turn/start'; await runtime.thread('chat', '任务');
+  await assert.rejects(runtime.start('chat', '任务', { kind: 'task' }), (e) => e.code === 'CHAT_BUSY');
+  await new Promise(setImmediate); assert.equal(runtime.contexts.size, 0); assert.equal(runtime.loadedThreads.size, 0);
+  await assert.rejects(runtime.call('unknown'), (e) => e.rpcCode === -32000 && e.message === '服务器拒绝操作');
+});
+
+test('运行中不释放 writer，结束后卸载；接续启动等待旧卸载完成', async (t) => {
+  const { runtime, messages, children } = transport((m) => m.method === 'thread/unsubscribe' ? null : undefined);
+  t.after(() => runtime.close()); await runtime.thread(null, '任务'); await runtime.start('chat', '任务', { kind: 'task' });
+  assert.equal(await runtime.releaseIdle('chat'), false); assert.ok(!messages.some((m) => m.method === 'thread/unsubscribe'));
+  runtime.receive({ method: 'turn/completed', params: { threadId: 'chat', turn: { id: 'turn', status: 'completed' } } });
+  const unsubscribe = messages.find((m) => m.method === 'thread/unsubscribe'); assert.ok(unsubscribe);
+  const resuming = runtime.thread('chat', '任务'); await new Promise(setImmediate);
+  assert.ok(!messages.some((m) => m.method === 'thread/resume'));
+  children[0].send({ id: unsubscribe.id, result: { status: 'unsubscribed' } }); await resuming;
+  assert.equal(runtime.loadedThreads.has('chat'), true); assert.equal(runtime.preparingThreads.has('chat'), true);
+  assert.equal(await runtime.releaseIdle('chat'), false); assert.equal(messages.filter((m) => m.method === 'thread/unsubscribe').length, 1);
+});
+
+test('turn/completed 早于启动回复时仍释放闲置 writer，不遗留运行状态', async (t) => {
+  const { runtime, messages } = transport((m, child) => {
+    if (m.method === 'turn/start') { child.send({ method: 'turn/started', params: { threadId: 'chat', turn: { id: 'turn' } } }); child.send({ method: 'turn/completed', params: { threadId: 'chat', turn: { id: 'turn', status: 'completed' } } }); }
+  });
+  t.after(() => runtime.close()); await runtime.thread(null, '任务'); await runtime.start('chat', '任务', { kind: 'task' }); await new Promise(setImmediate);
+  assert.equal(runtime.activeTurns.size, 0); assert.equal(runtime.preparingThreads.size, 0); assert.equal(runtime.loadedThreads.size, 0);
+  assert.equal(messages.filter((m) => m.method === 'thread/unsubscribe').length, 1);
+});
+
+test('官方 fork 接续完整历史并命名；原聊天还在执行时不创建接续', async (t) => {
+  let active = true;
+  const { runtime, messages } = transport((m) => m.method === 'thread/read' && active ? { result: { thread: { id: 'chat', status: { type: 'notLoaded' }, turns: [{ id: 'old-turn', status: 'inProgress' }] } } } : undefined);
+  t.after(() => runtime.close());
+  await assert.rejects(runtime.fork('chat', '任务'), (e) => e.reason === 'active'); assert.ok(!messages.some((m) => m.method === 'thread/fork'));
+  active = false; const thread = await runtime.fork('chat', '任务'); assert.equal(thread.id, 'fork-chat');
+  assert.deepEqual(messages.find((m) => m.method === 'thread/fork').params, { threadId: 'chat', cwd: 'F:\\workspace', excludeTurns: true, deferGoalContinuation: true, lastTurnId: 'old-turn' });
+  assert.match(messages.find((m) => m.method === 'thread/name/set').params.name, /任务·接续$/);
+  assert.equal(runtime.preparingThreads.has('fork-chat'), true);
 });

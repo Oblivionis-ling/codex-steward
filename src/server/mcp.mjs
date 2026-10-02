@@ -11,7 +11,7 @@ import { brokerClient } from './broker.mjs';
 
 const service = process.env.STEWARD_BROKER === '1' ? brokerClient() : createService();
 const icon = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#292d32" stroke-width="1.8"><rect x="4" y="5" width="24" height="22" rx="2"/><path d="M12 5v22M20 5v22M4 12h24"/></svg>').toString('base64');
-const server = new McpServer({ name: 'personal-steward', title: '个人管家', version: '0.2.2', icons: [{ src: icon, mimeType: 'image/svg+xml', sizes: ['any'] }] });
+const server = new McpServer({ name: 'personal-steward', title: '个人管家', version: '0.2.3-dev.1', icons: [{ src: icon, mimeType: 'image/svg+xml', sizes: ['any'] }] });
 new OpenAIExtensions(server);
 const UI_URI = 'ui://personal-steward/library.html';
 const here = path.dirname(fileURLToPath(import.meta.url));

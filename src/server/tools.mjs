@@ -203,7 +203,7 @@ export function createService(options = {}) {
       for (const task of incoming.tasks) { if (!projectIds.has(task.projectId)) throw new Error('备份包含失效的项目关联，未导入。'); if (task.sourceRecordId && !newIds.has(task.sourceRecordId) && !state.records.some((r) => r.id === task.sourceRecordId)) throw new Error('备份包含失效的小卡来源，未导入。'); }
       const mainChats = new Map();
       for (const task of [...state.tasks, ...incoming.tasks]) if (task.mainChatId) { if (mainChats.has(task.mainChatId) && mainChats.get(task.mainChatId) !== task.id) throw new Error('备份中同一主聊天关联了多张小卡，未导入。'); mainChats.set(task.mainChatId, task.id); }
-      const persistentTask = ({ execution, runId, turnId, pendingDelivery, progress, error, ...task }) => task;
+      const persistentTask = ({ execution, runId, turnId, pendingDelivery, blockedRequest, progress, error, ...task }) => task;
       for (const name of ['projects', 'tasks']) {
         if (new Set(incoming[name].map((item) => item.id)).size !== incoming[name].length) throw new Error('备份含重复任务或项目 ID，未导入。');
         for (const item of incoming[name]) { const existing = state[name].find((x) => x.id === item.id); if (existing && JSON.stringify(name === 'tasks' ? persistentTask(existing) : existing) !== JSON.stringify(name === 'tasks' ? persistentTask(item) : item)) throw new Error('备份与现有同 ID 项目或小卡不同，未覆盖。'); }
@@ -214,7 +214,7 @@ export function createService(options = {}) {
       for (const record of incoming.records) if (!state.records.some((item) => item.id === record.id)) { state.records.push(record); count++; }
       for (const insight of incoming.insights) if (!state.insights.some((item) => item.id === insight.id)) { state.insights.push(insight); count++; }
       for (const p of incoming.projects) if (!state.projects.some((x) => x.id === p.id)) { state.projects.push({ ...p, transitionId: null }); count++; }
-      for (const t of incoming.tasks) if (!state.tasks.some((x) => x.id === t.id)) { state.tasks.push({ ...t, execution: 'idle', runId: null, turnId: null, pendingDelivery: null, error: '', progress: '从备份恢复，请查看主聊天确认实际执行状态。' }); count++; }
+      for (const t of incoming.tasks) if (!state.tasks.some((x) => x.id === t.id)) { state.tasks.push({ ...t, execution: 'idle', runId: null, turnId: null, pendingDelivery: null, blockedRequest: null, error: '', progress: '从备份恢复，请查看主聊天确认实际执行状态。' }); count++; }
       return { imported: count };
     }),
   };

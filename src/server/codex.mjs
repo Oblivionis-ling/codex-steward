@@ -4,12 +4,14 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { ChatBusyError, mapChatError } from './chat-errors.mjs';
 
 /** The official app-server protocol. Authentication and permissions remain Codex-owned. */
 export class CodexConnection extends EventEmitter {
   constructor({ command = process.env.STEWARD_CODEX_PATH || 'codex.exe', workspace = process.env.STEWARD_WORKSPACE || 'F:\\workspace', spawnProcess = spawn } = {}) {
     super(); this.command = command; this.workspace = workspace; this.spawnProcess = spawnProcess;
     this.serial = 0; this.pending = new Map(); this.requests = new Map(); this.contexts = new Map(); this.completed = new Set(); this.activeTurns = new Map(); this.items = new Map(); this.chatListings = new Map(); this.connected = false;
+    this.loadedThreads = new Set(); this.preparingThreads = new Set(); this.releasingThreads = new Map();
   }
   async connect() {
     if (this.connected) return;
@@ -21,9 +23,9 @@ export class CodexConnection extends EventEmitter {
       this.lines = readline.createInterface({ input: this.proc.stdout });
       this.lines.on('line', (line) => { if (this.proc !== child) return; try { this.receive(JSON.parse(line)); } catch { /* Non-protocol stdout cannot become a state update. */ } });
       let exited = false;
-      const lost = () => { if (this.proc !== child || exited) return; exited = true; this.connected = false; this.connecting = null; for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(new Error('Codex 连接已断开，请重新连接后检查任务。')); } this.pending.clear(); this.requests.clear(); this.activeTurns.clear(); this.emit('disconnected'); };
+      const lost = () => { if (this.proc !== child || exited) return; exited = true; this.connected = false; this.connecting = null; for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(new Error('Codex 连接已断开，请重新连接后检查任务。')); } this.pending.clear(); this.requests.clear(); this.activeTurns.clear(); this.loadedThreads.clear(); this.preparingThreads.clear(); this.emit('disconnected'); };
       this.proc.on('error', lost); this.proc.on('exit', lost);
-      await this.request('initialize', { clientInfo: { name: 'personal_steward', title: '个人管家', version: '0.2.2' }, capabilities: { experimentalApi: true } });
+      await this.request('initialize', { clientInfo: { name: 'personal_steward', title: '个人管家', version: '0.2.3-dev.1' }, capabilities: { experimentalApi: true } });
       this.write({ method: 'initialized' }); this.connected = true;
     })();
     try { await this.connecting; } catch (error) { this.proc?.kill(); this.connecting = null; throw error; }
@@ -42,7 +44,7 @@ export class CodexConnection extends EventEmitter {
     if (message.id !== undefined && !message.method) {
       const request = this.pending.get(message.id); if (!request) return;
       clearTimeout(request.timer); this.pending.delete(message.id);
-      if (message.error) request.reject(new Error(message.error.message || 'Codex 操作失败。')); else request.resolve(message.result);
+      if (message.error) { const error = new Error(message.error.message || 'Codex 操作失败。'); error.rpcCode = message.error.code; request.reject(error); } else request.resolve(message.result);
       return;
     }
     if (message.id !== undefined) {
@@ -55,22 +57,50 @@ export class CodexConnection extends EventEmitter {
     if (message.method === 'turn/started') this.activeTurns.set(message.params.threadId, message.params.turn.id);
     if (message.method === 'turn/completed') { if (this.activeTurns.get(message.params.threadId) === message.params.turn.id) this.activeTurns.delete(message.params.threadId); this.completed.add(`${message.params.threadId}:${message.params.turn.id}`); if (this.completed.size > 1000) this.completed.delete(this.completed.values().next().value); this.emit('turnCompleted', message.params); }
     this.emit('notification', message);
+    if (message.method === 'turn/completed') this.releaseIdle(message.params.threadId);
   }
   async status() { try { const result = await this.call('account/read', {}); return { connected: true, authenticated: !!result.account }; } catch (error) { return { connected: false, authenticated: false, error: error.message }; } }
   async thread(chatId, title, { readOnly = false, ephemeral = false } = {}) {
-    const result = chatId ? await this.call('thread/resume', { threadId: chatId, cwd: this.workspace, excludeTurns: true }) : await this.call('thread/start', { cwd: this.workspace, ephemeral, ...(readOnly ? { sandbox: 'read-only' } : {}) });
-    const thread = result.thread;
-    if (thread.status?.type === 'active') throw new Error('主聊天已有执行或等待请求，请在主聊天处理后继续。');
-    if (!chatId && !ephemeral) {
-      const date = new Intl.DateTimeFormat('en-GB', { month: '2-digit', day: '2-digit', timeZone: 'Asia/Shanghai' }).format(new Date()).split('/').reverse().join('');
-      await this.call('thread/name/set', { threadId: thread.id, name: `${date}|${readOnly ? '规划' : '开发'}|${title.slice(0, 18)}` });
-    }
-    return thread;
+    if (chatId) { this.preparingThreads.add(chatId); await this.releasingThreads.get(chatId); }
+    let thread;
+    try {
+      const result = chatId ? await this.call('thread/resume', { threadId: chatId, cwd: this.workspace, excludeTurns: true }) : await this.call('thread/start', { cwd: this.workspace, ephemeral, ...(readOnly ? { sandbox: 'read-only' } : {}) });
+      thread = result.thread; this.loadedThreads.add(thread.id); this.preparingThreads.add(thread.id);
+      if (thread.status?.type === 'active') throw new ChatBusyError(thread.id, 'active');
+      if (!chatId && !ephemeral) await this.nameThread(thread.id, title, readOnly);
+      return thread;
+    } catch (error) { this.preparingThreads.delete(chatId || thread?.id); const mapped = mapChatError(error, chatId); if (thread && mapped.reason !== 'active') this.releaseIdle(thread.id); throw mapped; }
+  }
+  async nameThread(chatId, title, readOnly = false) {
+    const date = new Intl.DateTimeFormat('en-GB', { month: '2-digit', day: '2-digit', timeZone: 'Asia/Shanghai' }).format(new Date()).split('/').reverse().join('');
+    await this.call('thread/name/set', { threadId: chatId, name: `${date}|${readOnly ? '规划' : '开发'}|${title.slice(0, 18)}` });
+  }
+  async fork(chatId, title) {
+    const original = await this.history(chatId), lastTurn = original.turns?.at(-1);
+    if (original.status?.type === 'active' || lastTurn?.status === 'inProgress') throw new ChatBusyError(chatId, 'active');
+    const result = await this.call('thread/fork', { threadId: chatId, cwd: this.workspace, excludeTurns: true, deferGoalContinuation: true, ...(lastTurn ? { lastTurnId: lastTurn.id } : {}) });
+    const thread = result.thread; this.loadedThreads.add(thread.id); this.preparingThreads.add(thread.id);
+    try { await this.nameThread(thread.id, `${title.slice(0, 15)}·接续`); return thread; }
+    catch (error) { this.preparingThreads.delete(thread.id); await this.releaseIdle(thread.id); throw error; }
+  }
+  releaseIdle(chatId) {
+    if (!this.connected || !this.loadedThreads.has(chatId) || this.activeTurns.has(chatId) || this.preparingThreads.has(chatId)) return Promise.resolve(false);
+    if (this.releasingThreads.has(chatId)) return this.releasingThreads.get(chatId);
+    const release = this.request('thread/unsubscribe', { threadId: chatId }).then((result) => {
+      if (['unsubscribed', 'notLoaded'].includes(result.status)) { this.loadedThreads.delete(chatId); return true; } return false;
+    }).catch(() => false).finally(() => { if (this.releasingThreads.get(chatId) === release) this.releasingThreads.delete(chatId); });
+    this.releasingThreads.set(chatId, release); return release;
   }
   async start(chatId, prompt, context, outputSchema) {
     this.contexts.set(chatId, context);
-    const result = await this.call('turn/start', { threadId: chatId, input: [{ type: 'text', text: prompt, text_elements: [] }], ...(outputSchema ? { outputSchema, sandboxPolicy: { type: 'readOnly' } } : {}) });
-    return result.turn;
+    let canRelease = false;
+    try {
+      const result = await this.call('turn/start', { threadId: chatId, input: [{ type: 'text', text: prompt, text_elements: [] }], ...(outputSchema ? { outputSchema, sandboxPolicy: { type: 'readOnly' } } : {}) });
+      const completed = this.completed.has(`${chatId}:${result.turn.id}`);
+      if (result.turn.status === 'inProgress' && !completed) this.activeTurns.set(chatId, result.turn.id);
+      canRelease = completed || result.turn.status !== 'inProgress'; return result.turn;
+    } catch (error) { const mapped = mapChatError(error, chatId); canRelease = mapped.code === 'CHAT_BUSY' || error.rpcCode !== undefined; if (canRelease && this.contexts.get(chatId) === context) this.contexts.delete(chatId); throw mapped; }
+    finally { this.preparingThreads.delete(chatId); if (canRelease) this.releaseIdle(chatId); }
   }
   async interrupt(chatId, turnId) {
     if (!turnId) throw new Error('执行仍在启动，请稍后再停止。');

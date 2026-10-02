@@ -4,8 +4,8 @@ import { Icon, Button } from './components.jsx';
 import { PHASES, PHASE_NAMES, dropIntent } from './transitions.js';
 
 export { PHASES, PHASE_NAMES } from './transitions.js';
-export const EXEC_NAMES = { idle: '', starting: '正在启动', running: '运行中', waiting: '等你处理', failed: '执行失败', stopping: '正在停止' };
-export const needsAttention = (task) => task.phase === 'review' || ['waiting', 'failed'].includes(task.execution);
+export const EXEC_NAMES = { idle: '', starting: '正在启动', running: '运行中', waiting: '等你处理', failed: '执行失败', stopping: '正在停止', blocked: '聊天被占用' };
+export const needsAttention = (task) => task.phase === 'review' || ['waiting', 'failed', 'blocked'].includes(task.execution);
 
 export function Board({ data, expanded, expand, openProject, openTask, openChat, moveCard, busy, search }) {
   const [dragging, setDragging] = useState(null), session = useRef(null), board = useRef(null);
@@ -67,8 +67,8 @@ export function Board({ data, expanded, expand, openProject, openTask, openChat,
         <button className="icon-button" aria-label={`项目详情：${project.title}`} onClick={() => openProject(project.id)}><Icon as={MoreHorizontal} size={16}/></button>
       </article>; })}
       {small.map((task) => <article className={`task-card ${needsAttention(task) ? 'needs-attention' : ''} ${dragging?.item.id === task.id ? 'card-dragging' : ''}`} data-card-id={`task:${task.id}`} key={task.id}>
-        <div className="task-heading">{handle(task, 'task')}<span className={`status-dot ${task.phase === 'done' ? 'done' : task.phase === 'review' ? 'review' : task.execution === 'failed' ? 'failed' : ''}`}/><button className="card-title" onClick={() => openTask(task.id)}><h3>{task.title}</h3></button></div>
-        <div className={`task-status ${task.execution === 'failed' ? 'error-text' : ''}`}>{EXEC_NAMES[task.execution] || (task.phase === 'idea' ? '灵感' : PHASE_NAMES[task.phase])}</div>
+        <div className="task-heading">{handle(task, 'task')}<span className={`status-dot ${task.execution === 'blocked' ? 'blocked' : task.phase === 'done' ? 'done' : task.phase === 'review' ? 'review' : task.execution === 'failed' ? 'failed' : ''}`}/><button className="card-title" onClick={() => openTask(task.id)}><h3>{task.title}</h3></button></div>
+        <div className={`task-status ${task.execution === 'failed' ? 'error-text' : task.execution === 'blocked' ? 'blocked-text' : ''}`}>{EXEC_NAMES[task.execution] || (task.phase === 'idea' ? '灵感' : PHASE_NAMES[task.phase])}</div>
         <p className="latest-progress">{task.error || task.progress || (task.phase === 'ready' ? '确认任务目标与交付要求。' : task.description || '补充任务说明，逐步推进。')}</p>
         <div className="card-actions"><Button kind="outline" onClick={() => openTask(task.id, task.phase === 'review' ? 'acceptance' : 'description')}>{task.phase === 'review' ? '验收详情' : '详情'}</Button><Button kind="text" onClick={() => openChat(task.id)}>主聊天</Button></div>
       </article>)}

@@ -11,7 +11,8 @@ export const deliverySchema = z.object({ summary: z.string().min(1).max(8000), c
 export const taskSchema = z.object({
   id: text(80), projectId: text(80), title: text(240), description: text(30000), phase: phaseSchema, sourceRecordId: text(80).nullable().default(null), sourceActionKey: text(240).nullable().default(null),
   criteria: criteriaSchema, confirmedHash: text(100).nullable(), mainChatId: text(100).nullable(), relatedChatIds: z.array(text(100)).max(100),
-  runId: text(80).nullable(), turnId: text(100).nullable(), execution: z.enum(['idle', 'starting', 'running', 'waiting', 'failed', 'stopping']),
+  runId: text(80).nullable(), turnId: text(100).nullable(), execution: z.enum(['idle', 'starting', 'running', 'waiting', 'failed', 'stopping', 'blocked']),
+  blockedRequest: z.object({ reason: z.enum(['writer', 'active']), feedback: text(10000).optional(), message: text(10000).optional() }).nullable().default(null),
   progress: text(1200), error: text(2000), pendingDelivery: deliverySchema.nullable(), delivery: deliverySchema.nullable(), deliveryHash: text(100).nullable().default(null),
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 });

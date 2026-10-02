@@ -1,9 +1,11 @@
 import { EventEmitter } from 'node:events';
+import { ChatBusyError } from '../../src/server/chat-errors.mjs';
 
 export class MockCodex extends EventEmitter {
-  constructor() { super(); this.requests = new Map(); this.contexts = new Map(); this.activeTurns = new Map(); this.completed = new Set(); this.threads = new Map(); this.counter = 0; this.starts = []; this.interrupts = []; this.historyReads = []; this.failStops = new Set(); }
+  constructor() { super(); this.requests = new Map(); this.contexts = new Map(); this.activeTurns = new Map(); this.completed = new Set(); this.threads = new Map(); this.counter = 0; this.starts = []; this.forks = []; this.busyChats = new Set(); this.interrupts = []; this.historyReads = []; this.failStops = new Set(); }
   async status() { return { connected: true, authenticated: true }; }
-  async thread(chatId, title) { if (chatId) { if (!this.threads.has(chatId)) this.threads.set(chatId, { id: chatId, name: title, turns: [] }); return this.threads.get(chatId); } const id = `test-chat-${++this.counter}`; const thread = { id, name: title, turns: [] }; this.threads.set(id, thread); return thread; }
+  async thread(chatId, title) { if (this.busyChats.has(chatId)) throw new Error(`thread ${chatId} already has an active writer`); if (chatId) { if (!this.threads.has(chatId)) this.threads.set(chatId, { id: chatId, name: title, turns: [] }); return this.threads.get(chatId); } const id = `test-chat-${++this.counter}`; const thread = { id, name: title, turns: [] }; this.threads.set(id, thread); return thread; }
+  async fork(chatId, title) { const original = await this.history(chatId); if (this.activeTurns.has(chatId) || original.turns.at(-1)?.status === 'inProgress') throw new ChatBusyError(chatId, 'active'); const thread = { ...original, id: `test-chat-${++this.counter}`, name: `${title}·接续` }; this.threads.set(thread.id, thread); this.forks.push({ source: chatId, id: thread.id }); return thread; }
   async start(chatId, prompt, context, outputSchema) {
     const turn = { id: `test-turn-${++this.counter}`, status: 'inProgress', items: [] };
     this.contexts.set(chatId, context); this.activeTurns.set(chatId, turn.id); this.threads.get(chatId).turns.push(turn); this.starts.push({ chatId, prompt, context, outputSchema, turnId: turn.id });
