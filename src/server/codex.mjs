@@ -25,7 +25,7 @@ export class CodexConnection extends EventEmitter {
       let exited = false;
       const lost = () => { if (this.proc !== child || exited) return; exited = true; this.connected = false; this.connecting = null; for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(new Error('Codex 连接已断开，请重新连接后检查任务。')); } this.pending.clear(); this.requests.clear(); this.activeTurns.clear(); this.loadedThreads.clear(); this.preparingThreads.clear(); this.emit('disconnected'); };
       this.proc.on('error', lost); this.proc.on('exit', lost);
-      await this.request('initialize', { clientInfo: { name: 'personal_steward', title: '个人管家', version: '0.2.3-dev.2' }, capabilities: { experimentalApi: true } });
+      await this.request('initialize', { clientInfo: { name: 'personal_steward', title: '个人管家', version: '0.3.0' }, capabilities: { experimentalApi: true } });
       this.write({ method: 'initialized' }); this.connected = true;
     })();
     try { await this.connecting; } catch (error) { this.proc?.kill(); this.connecting = null; throw error; }
@@ -126,14 +126,14 @@ export class CodexConnection extends EventEmitter {
     finally { clearTimeout(timer); this.off('turnCompleted', listener); this.off('disconnected', disconnected); }
   }
   async history(chatId) { const result = await this.call('thread/read', { threadId: chatId, includeTurns: true }); return result.thread; }
-  async list({ cursor, search = '', excludeIds = [] } = {}) {
+  async list({ cursor, search = '', excludeIds = [], includeDescendants = false, allWorkspaces = false } = {}) {
     const query = search.trim().toLocaleLowerCase(), now = Date.now();
     for (const [key, snapshot] of this.chatListings) if (now - snapshot.createdAt > 1800000) this.chatListings.delete(key);
     let key, offset = 0, snapshot;
     if (cursor) {
       const match = /^([a-f0-9-]{36}):(\d+)$/.exec(cursor);
       key = match?.[1]; offset = Number(match?.[2]); snapshot = this.chatListings.get(key);
-      if (!snapshot || snapshot.query !== query || !Number.isSafeInteger(offset) || offset < 0 || offset > snapshot.threads.length) throw new Error('聊天列表已更新，请点击刷新重新读取。');
+      if (!snapshot || snapshot.query !== query || snapshot.includeDescendants !== includeDescendants || snapshot.allWorkspaces !== allWorkspaces || !Number.isSafeInteger(offset) || offset < 0 || offset > snapshot.threads.length) throw new Error('聊天列表已更新，请点击刷新重新读取。');
     } else {
       const normalize = (value) => typeof value === 'string' && value ? path.win32.normalize(value).replace(/[\\/]+$/, '').toLocaleLowerCase() : null;
       const workspace = normalize(this.workspace), excluded = new Set(excludeIds), threads = new Map(), seenCursors = new Set();
@@ -143,16 +143,17 @@ export class CodexConnection extends EventEmitter {
         // Read every metadata page before comparing the returned, normalized cwd.
         const result = await this.call('thread/list', { limit: 100, cursor: pageCursor, sortKey: 'updated_at', modelProviders: [], sourceKinds: ['cli', 'vscode', 'appServer', 'unknown'], archived: false });
         for (const thread of result.data) {
-          if (thread.ephemeral || normalize(thread.cwd) !== workspace) continue;
+          const cwd = normalize(thread.cwd);
+          if (thread.ephemeral || !allWorkspaces && cwd !== workspace && !(includeDescendants && cwd?.startsWith(workspace + '\\'))) continue;
           if (excluded.has(thread.id)) { excludedCount++; continue; }
           const title = thread.name || thread.preview || '未命名聊天';
-          if (!query || title.toLocaleLowerCase().includes(query)) threads.set(thread.id, { id: thread.id, title, updatedAt: thread.updatedAt, status: thread.status });
+          if (!query || title.toLocaleLowerCase().includes(query)) threads.set(thread.id, { id: thread.id, title, updatedAt: thread.updatedAt, status: thread.status, cwd: thread.cwd });
         }
         pageCursor = result.nextCursor ?? null;
         if (pageCursor && seenCursors.has(pageCursor)) throw new Error('聊天分页没有继续，请刷新后重试。');
         if (pageCursor) seenCursors.add(pageCursor);
       } while (pageCursor);
-      key = randomUUID(); snapshot = { query, threads: [...threads.values()].sort((a, b) => b.updatedAt - a.updatedAt), excludedCount, createdAt: Date.now() };
+      key = randomUUID(); snapshot = { query, includeDescendants, allWorkspaces, threads: [...threads.values()].sort((a, b) => b.updatedAt - a.updatedAt), excludedCount, createdAt: Date.now() };
       this.chatListings.set(key, snapshot);
       if (this.chatListings.size > 10) this.chatListings.delete(this.chatListings.keys().next().value);
     }

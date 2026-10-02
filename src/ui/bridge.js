@@ -14,10 +14,10 @@ export const saveLocalValue = (key, value) => { try { localStorage.setItem(`stew
 export async function connect() {
   if (!embedded) return;
   if (connecting) return connecting;
-  app = new App({ name: 'personal-steward', version: '0.2.3-dev.2' });
+  app = new App({ name: 'personal-steward', version: '0.3.0' });
   extensions = new OpenAIExtensions(app);
   app.ontoolresult = (result) => {
-    if (result.structuredContent?.version === 2 && Array.isArray(result.structuredContent.projects) && Array.isArray(result.structuredContent.tasks)) { initialState = result.structuredContent; window.dispatchEvent(new CustomEvent('steward:state', { detail: initialState })); }
+    if (result.structuredContent?.version === 3 && Array.isArray(result.structuredContent.cards)) { initialState = result.structuredContent; window.dispatchEvent(new CustomEvent('steward:state', { detail: initialState })); }
   };
   app.onhostcontextchanged = applyHostContext;
   connecting = app.connect().then(() => applyHostContext(app.getHostContext()));
@@ -54,3 +54,10 @@ export async function sendAI(prepared, workspace) {
   }
 }
 export const isEmbedded = () => embedded;
+
+export async function closeWorkbench() {
+  if (!embedded) return false;
+  await connect();
+  await app.requestDisplayMode({ mode: 'inline' });
+  return true;
+}

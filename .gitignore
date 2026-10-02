@@ -7,4 +7,5 @@ plugins/personal-steward/dist/
 .env.*
 !.env.example
 coverage/
+runs/
 *.pid

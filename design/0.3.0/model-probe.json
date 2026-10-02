@@ -1,0 +1,90 @@
+{
+  "scope": "仅合成聊天，未读取或启动真实项目",
+  "status": "ready",
+  "result": {
+    "assignments": [
+      {
+        "chatId": "fixture-shaping",
+        "title": "需求盘问与草案整理",
+        "description": "通过盘问梳理零散想法，形成需求草案，暂不实施。",
+        "labels": [
+          "需求梳理",
+          "待实施决策"
+        ],
+        "phase": "shaping",
+        "assessment": {
+          "summary": "助手报告盘问和草案整理已结束，等待用户决定是否实施。",
+          "reason": "用户明确要求盘问需求、暂不实施。盘问结束仍属于需求塑形，没有进入实施阶段。",
+          "confidence": "high",
+          "evidence": [
+            {
+              "turnId": "t1",
+              "role": "user",
+              "quote": "我有一些零散想法，请先用 grill-me 盘问需求，暂时不要实施。"
+            },
+            {
+              "turnId": "t1",
+              "role": "assistant",
+              "quote": "需求盘问已完成，草案已整理，接下来等你决定是否开始实施。"
+            }
+          ]
+        }
+      },
+      {
+        "chatId": "fixture-building",
+        "title": "首版开发与卡片存储",
+        "description": "实现已确认需求的首版，完成页面和卡片存储。",
+        "labels": [
+          "首版开发",
+          "存储待完成"
+        ],
+        "phase": "building",
+        "assessment": {
+          "summary": "基础页面据报已完成，卡片存储仍在处理，首版尚未交付。",
+          "reason": "用户已明确要求开始实施，助手报告开发仍在推进。聊天当前未运行不代表项目已完成。",
+          "confidence": "high",
+          "evidence": [
+            {
+              "turnId": "t1",
+              "role": "user",
+              "quote": "需求已经确认，现在开始做首版。"
+            },
+            {
+              "turnId": "t1",
+              "role": "assistant",
+              "quote": "已完成基础页面，仍在处理卡片存储；首版还没交付。"
+            }
+          ]
+        }
+      },
+      {
+        "chatId": "fixture-review",
+        "title": "小工具交付与验收",
+        "description": "实现小工具并交付用户测试，确认是否满足需求。",
+        "labels": [
+          "已交付",
+          "待用户验收"
+        ],
+        "phase": "review",
+        "assessment": {
+          "summary": "助手已交付 app.html，并报告构建通过，尚待用户测试反馈。",
+          "reason": "已有交付声明，但用户没有明确确认最新目标完成，因此属于等待验收。",
+          "confidence": "high",
+          "evidence": [
+            {
+              "turnId": "t1",
+              "role": "user",
+              "quote": "请实现这个小工具，然后让我测试。"
+            },
+            {
+              "turnId": "t1",
+              "role": "assistant",
+              "quote": "已经实现并构建通过。交付 app.html，可以开始测试；尚未收到用户验收反馈。"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "error": ""
+}

@@ -1,16 +1,17 @@
 {
   "name": "personal-steward",
-  "version": "0.2.3-dev.2",
-  "description": "五栏任务看板，默认一张卡；AI 整理聊天并判断进度，需要时拆子任务，沿用主聊天执行与验收。",
+  "version": "0.3.0",
+  "description": "灵感工作台：收集零散想法，在原生 Codex 中构思、盘问、调研，再开始实施。",
   "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
   "interface": {
-    "displayName": "个人管家",
-    "shortDescription": "从任务看板进入 Codex，推进到验收。",
-    "longDescription": "在 Codex 左侧打开五栏看板，默认一个任务一张卡，需要时再拆子任务。AI 根据所选聊天的目标和最新进展建议卡片、阶段与原文依据，由用户确认保存。每张任务卡沿用一个主聊天，结合验收标准推进、交付、返工和结项。资料与回顾保存在本机。",
+    "displayName": "灵感工作台",
+    "shortDescription": "从零散灵感，走到可以交付的项目。",
+    "longDescription": "五栏呈现灵感池、构思中、进行中、待验收和已结项。默认单卡，按需拆子任务；原生聊天中可选择普通讨论、grill-me 盘问和 idea-research 调研，逐渐保存需求草案。用户决定开始实施后推进交付，最终验收由用户确认。已有聊天可整理成带进度依据的卡片。本地存储，沿用 Codex 登录。",
     "developerName": "Ling",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
     "brandColor": "#292d32",
-    "defaultPrompt": ["打开个人管家任务看板", "查看我的项目与子任务", "回顾这个项目的进展"]
+    "defaultPrompt": ["打开灵感工作台", "记下一个零散灵感", "整理我的现有聊天"]
   }
 }
