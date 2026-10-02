@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Overlay, Button, Icon } from './components.jsx';
 import { LoaderCircle, Check, ArrowUpRight } from 'lucide-react';
 import { call } from './bridge.js';
@@ -26,14 +26,27 @@ export function Proposal({ proposal, data, close, perform, busy, applied }) {
 }
 
 export function ChatPicker({ taskId, projectId, close, perform, busy, propose, proposals = [], projects = [], openProposal }) {
-  const [threads, setThreads] = useState([]), [cursor, setCursor] = useState(null), [search, setSearch] = useState(''), [selected, setSelected] = useState(new Set()), [loading, setLoading] = useState(false), [main, setMain] = useState(false), [loadError, setLoadError] = useState('');
-  const fetchThreads = async (append = false) => { setLoading(true); setLoadError(''); try { const result = await call('steward_chats', { search, ...(append && cursor ? { cursor } : {}) }); setThreads(append ? [...threads, ...result.threads] : result.threads); setCursor(result.nextCursor); } catch (error) { setLoadError(error.message); } finally { setLoading(false); } };
-  useEffect(() => { fetchThreads(); }, []);
+  const [threads, setThreads] = useState([]), [cursor, setCursor] = useState(null), [search, setSearch] = useState(''), [selected, setSelected] = useState(new Set()), [loading, setLoading] = useState(false), [main, setMain] = useState(false), [loadError, setLoadError] = useState(''), [total, setTotal] = useState(null), [excluded, setExcluded] = useState(0), [includeAuxiliary, setIncludeAuxiliary] = useState(false);
+  const generation = useRef(0), loadedSearch = useRef('');
+  const fetchThreads = async (append = false, showAuxiliary = includeAuxiliary) => {
+    const request = ++generation.current, query = append ? loadedSearch.current : search;
+    setLoading(true); setLoadError('');
+    try {
+      const result = await call('steward_chats', { search: query, includeAuxiliary: showAuxiliary, ...(append && cursor ? { cursor } : {}) });
+      if (generation.current !== request) return;
+      setThreads((previous) => [...new Map([...(append ? previous : []), ...result.threads].map((thread) => [thread.id, thread])).values()]);
+      setCursor(result.nextCursor); setTotal(result.total ?? null); setExcluded(result.excludedCount || 0); loadedSearch.current = query;
+    } catch (error) { if (generation.current === request) setLoadError(error.message); }
+    finally { if (generation.current === request) setLoading(false); }
+  };
+  useEffect(() => { fetchThreads(); return () => { generation.current++; }; }, []);
   const submit = async () => { if (taskId) { for (const chatId of selected) if (!await perform('steward_chat_attach', { taskId, chatId, main }, '聊天已关联')) return; close(); } else propose(projectId, 'history', undefined, { chatIds: [...selected] }); };
   return <Overlay title={taskId ? '关联已有聊天' : 'AI 整理现有聊天'} close={close}>
     {!taskId && proposals.length > 0 && <section className="history-drafts" aria-label="已有整理建议"><h3>继续查看整理建议</h3>{proposals.map((p) => <button className="history-draft" key={p.id} onClick={() => openProposal(p.id)}><span>{projects.find((project) => project.id === p.projectId)?.title || '现有聊天整理'} · {p.selectedChatIds.length} 个聊天</span><small>{({ running: '正在生成', ready: '待确认', error: '生成失败' })[p.status]}</small></button>)}</section>}
-    <form className="chat-search" onSubmit={(e) => { e.preventDefault(); fetchThreads(); }}><input aria-label="搜索已有聊天" placeholder="搜索聊天标题…" value={search} onChange={(e) => setSearch(e.target.value)}/><Button kind="outline" disabled={loading}>搜索</Button></form>
+    <form className="chat-search" onSubmit={(e) => { e.preventDefault(); fetchThreads(); }}><input aria-label="搜索已有聊天" placeholder="搜索聊天标题…" value={search} onChange={(e) => setSearch(e.target.value)}/><Button kind="outline" disabled={loading}>搜索</Button><Button kind="text" type="button" disabled={loading} onClick={() => fetchThreads()}>刷新</Button></form>
     <p className="setting-note">{taskId ? '选择要关联的小卡聊天。' : 'AI 会建议项目分组和子任务，确认后才生成卡片，不需要先建项目。'}只整理你勾选的聊天，每次最多 30 个；列表只显示 workspace 项目中的聊天。</p>
+    <div className="chat-list-summary"><span>{total === null ? `已显示 ${threads.length} 条` : `已显示 ${threads.length} / ${total} 条`} · 已选 {selected.size}</span><label className="checkbox-label"><input type="checkbox" checked={includeAuxiliary} disabled={loading} onChange={(e) => { setIncludeAuxiliary(e.target.checked); fetchThreads(false, e.target.checked); }}/>显示整理辅助聊天</label></div>
+    {excluded > 0 && <p className="setting-note">另有 {excluded} 个插件整理辅助聊天已隐藏，可勾选上方选项查看。</p>}
     {loadError && <p className="inline-error" role="alert">{loadError}</p>}
     <div className="chat-picker">{threads.map((t) => <label className="chat-option" key={t.id}><input type={main ? 'radio' : 'checkbox'} checked={selected.has(t.id)} onChange={(e) => { const next = main ? new Set() : new Set(selected); if (e.target.checked) next.add(t.id); else next.delete(t.id); setSelected(next); }}/><span>{t.title}</span></label>)}</div>
     {loading && <p className="setting-note">正在读取聊天列表…</p>}{!loading && !loadError && !threads.length && <p className="setting-note">没有找到聊天。可更换搜索词；如果还没有聊天，也可以关闭窗口后新建项目。</p>}

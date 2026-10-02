@@ -3,20 +3,24 @@ import { OpenAIExtensions } from '@openai/mcp-extensions/app';
 
 let app, extensions, initialState, connecting;
 const embedded = window.parent !== window;
+function applyHostContext(context = {}) {
+  if (context.displayMode) document.documentElement.dataset.displayMode = context.displayMode;
+  const insets = context.safeAreaInsets;
+  if (insets) for (const side of ['top', 'right', 'bottom', 'left']) document.documentElement.style.setProperty(`--host-safe-${side}`, `${Math.max(0, Number(insets[side]) || 0)}px`);
+  if (!localValue('theme') && context.theme) document.documentElement.dataset.theme = context.theme;
+}
 export const localValue = (key, fallback = '') => { try { return localStorage.getItem(`steward:${key}`) ?? fallback; } catch { return fallback; } };
 export const saveLocalValue = (key, value) => { try { localStorage.setItem(`steward:${key}`, value); return true; } catch { return false; } };
 export async function connect() {
   if (!embedded) return;
   if (connecting) return connecting;
-  app = new App({ name: 'personal-steward', version: '0.2.1' });
+  app = new App({ name: 'personal-steward', version: '0.2.2' });
   extensions = new OpenAIExtensions(app);
   app.ontoolresult = (result) => {
     if (result.structuredContent?.version === 2 && Array.isArray(result.structuredContent.projects) && Array.isArray(result.structuredContent.tasks)) { initialState = result.structuredContent; window.dispatchEvent(new CustomEvent('steward:state', { detail: initialState })); }
   };
-  app.onhostcontextchanged = (context) => {
-    if (!localValue('theme') && context.theme) { document.documentElement.dataset.theme = context.theme; }
-  };
-  connecting = app.connect();
+  app.onhostcontextchanged = applyHostContext;
+  connecting = app.connect().then(() => applyHostContext(app.getHostContext()));
   return connecting;
 }
 export async function call(name, args = {}) {

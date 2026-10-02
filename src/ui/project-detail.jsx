@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Plus, ArrowLeft, ArrowUpRight, FileText, Check } from 'lucide-react';
+import { Sparkles, Plus, ArrowUpRight } from 'lucide-react';
 import { Overlay, Button, Icon, Insight } from './components.jsx';
 import { PHASES, PHASE_NAMES, PhaseControls } from './board.jsx';
 
@@ -10,7 +10,7 @@ export function ProjectDetail({ project, data, close, perform, busy, propose, op
   const generate = async (type) => { if ((title !== project.title || goal !== project.goal) && !await save()) return; propose(project.id, type, undefined, { question, from, to }); };
   return <Overlay title={project.title} close={close} className="drawer project-drawer"><div className="drawer-body">
     <div className="detail-tabs" role="tablist">{Object.entries({ goal: '项目目标', tasks: '子任务', materials: '资料', insights: '问答与回顾' }).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}</div>
-    <PhaseControls item={project} kind="project" busy={busy || demo || !!project.transitionId} move={(p, phase) => perform('steward_project_move', { id: p.id, phase }, '项目阶段已更新')} openRollback={rollback}/>
+    <PhaseControls item={project}/>
     {project.transitionId && <p className="setting-note">整个项目正在停止并回退，请稍候。</p>}
     {project.phase === 'done' && <div className="reopen-project"><p className="setting-note">追加新需求时重新打开，已有小卡阶段、聊天和成果保留。</p><Button kind="outline" disabled={busy || demo} onClick={() => perform('steward_project_reopen', { id: project.id }, '项目已重新打开，历史小卡阶段保留')}>重新打开并追加需求</Button></div>}
     {tab === 'goal' && <><label>项目名称<input value={title} maxLength={240} onChange={(e) => setTitle(e.target.value)}/></label><label>项目目标<textarea className="goal-text" value={goal} maxLength={30000} placeholder="长期目标、范围与预期成果…" onChange={(e) => setGoal(e.target.value)}/></label><div className="inline-actions"><Button kind="outline" disabled={busy || demo || !title.trim()} onClick={save}>保存目标</Button><Button kind="primary" disabled={busy || demo || !goal.trim()} onClick={() => generate('split')}><Icon as={Sparkles} size={16}/>AI 拆分目标</Button></div><p className="setting-note">AI 提出子任务方案，你挑选并修改后创建小卡。</p></>}
@@ -40,9 +40,9 @@ export function NewItem({ kind, projectId, close, perform, busy, created }) {
   return <Overlay title={kind === 'project' ? '新建项目' : '新建子任务'} close={close}><form onSubmit={async (e) => { e.preventDefault(); const result = await perform(kind === 'project' ? 'steward_project_create' : 'steward_task_create', kind === 'project' ? { title, goal: content } : { projectId, title, description: content }, kind === 'project' ? '项目已创建' : '子任务已创建'); if (result) created(result); }}><label>{kind === 'project' ? '项目名称' : '任务名称'}<input required maxLength={240} value={title} placeholder={kind === 'project' ? '一个长期项目…' : '一件可执行的事…'} onChange={(e) => setTitle(e.target.value)}/></label><label>{kind === 'project' ? '项目目标' : '任务说明'}<textarea className="goal-text" value={content} maxLength={30000} placeholder="描述目标、范围与预期成果…" onChange={(e) => setContent(e.target.value)}/></label><div className="dialog-actions"><Button kind="outline" type="button" onClick={close}>取消</Button><Button kind="primary" disabled={busy || !title.trim()}>创建</Button></div></form></Overlay>;
 }
 
-export function Rollback({ project, tasks, close, perform, busy, done }) {
-  const children = tasks.filter((t) => t.projectId === project.id), phase = PHASES[PHASES.indexOf(project.phase) - 1];
-  return <Overlay title="回退整个项目" close={close}><p>「{project.title}」将回到{PHASE_NAMES[phase]}。所属 <strong>{children.length} 张小卡全部停止执行，统一回到待启动</strong>，包括已结项的小卡。</p><p className="setting-note">聊天、已有成果和项目资料保留。</p><div className="rollback-list">{children.map((t) => <div key={t.id}><span>{t.title}</span><span>{PHASE_NAMES[t.phase]} → 待启动</span></div>)}</div><div className="dialog-actions"><Button kind="outline" onClick={close}>取消</Button><Button kind="primary" disabled={busy} onClick={async () => { if (await perform('steward_project_move', { id: project.id, phase }, '整个项目已回退')) done(); }}>{busy ? '正在停止并回退…' : '停止并回退全部小卡'}</Button></div></Overlay>;
+export function Rollback({ project, expectedPhase = project.phase, tasks, close, perform, busy, done }) {
+  const children = tasks.filter((t) => t.projectId === project.id), phase = PHASES[PHASES.indexOf(expectedPhase) - 1];
+  return <Overlay title="回退整个项目" close={close}><p>「{project.title}」将回到{PHASE_NAMES[phase]}。所属 <strong>{children.length} 张小卡全部停止执行，统一回到待启动</strong>，包括已结项的小卡。</p><p className="setting-note">聊天、已有成果和项目资料保留。</p><div className="rollback-list">{children.map((t) => <div key={t.id}><span>{t.title}</span><span>{PHASE_NAMES[t.phase]} → 待启动</span></div>)}</div><div className="dialog-actions"><Button kind="outline" disabled={busy} onClick={close}>取消</Button><Button kind="primary" disabled={busy} onClick={async () => { if (await perform('steward_project_move', { id: project.id, phase, expectedPhase }, '整个项目已回退')) done(); }}>{busy ? '正在停止并回退…' : '停止并回退全部小卡'}</Button></div></Overlay>;
 }
 
 export function MaterialEdit({ record, projectId, close, perform, busy }) {

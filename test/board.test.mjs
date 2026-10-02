@@ -13,6 +13,23 @@ async function ready(service, projectId, title = '测试小卡') { const { task 
 const reportFor = (task) => ({ summary: '结果已交付', checks: task.criteria.map((criterion) => ({ criterion, passed: true, evidence: '真实验证结果在所关联主聊天中' })), materials: [{ title: '项目决定', content: '保存一条可复用结论' }] });
 async function deliver(service, runtime, task) { await service.call('steward_submit_delivery', { id: task.id, runId: task.runId, hash: task.confirmedHash, report: reportFor(task) }); runtime.complete(task.mainChatId); await service.board.flush(); }
 
+test('拖动期间阶段变化时拒绝旧操作，不反向停止其他窗口刚启动的任务', async () => {
+  const { service, runtime, project } = await setup(), id = await ready(service, project.id);
+  await service.call('steward_task_confirm', { id }); const { task } = await service.call('steward_task_start', { id });
+  await assert.rejects(service.call('steward_task_move', { id, phase: 'active', expectedPhase: 'ready' }), /阶段已变化/);
+  await assert.rejects(service.call('steward_project_move', { id: project.id, phase: 'ready', expectedPhase: 'idea' }), /阶段已变化/);
+  const current = (await service.current()).tasks.find((t) => t.id === id);
+  assert.equal(current.phase, 'active'); assert.equal(current.runId, task.runId); assert.equal(runtime.interrupts.length, 0); assert.equal(runtime.starts.length, 1);
+});
+
+test('现有聊天默认排除本插件的整理回合，用户可以显式显示它们', async () => {
+  const { service, runtime, project } = await setup(); let options;
+  runtime.list = async (args) => { options = args; return { threads: [], nextCursor: null }; };
+  const { proposal } = await service.call('steward_propose', { projectId: project.id, type: 'split' });
+  await service.call('steward_chats'); assert.deepEqual(options.excludeIds, [proposal.chatId]);
+  await service.call('steward_chats', { includeAuxiliary: true }); assert.deepEqual(options.excludeIds, []);
+});
+
 test('1.0 数据迁移保留原记录、待办状态和旧版本备份', async () => {
   await fs.mkdir('_work', { recursive: true }); const dir = await fs.mkdtemp(path.resolve('_work/migration-')); const record = newRecord({ type: 'todo', content: '原待办', title: '原待办' }); record.completed = true; delete record.projectId; delete record.sourceChatId; delete record.hidden;
   const raw = { version: 1, records: [record], insights: [], jobs: [], settings: { mode: 'codex', apiBaseUrl: 'https://api.openai.com/v1', model: '' } }; const original = JSON.stringify(raw); await fs.writeFile(path.join(dir, 'steward.json'), original);

@@ -1,13 +1,15 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 /** The official app-server protocol. Authentication and permissions remain Codex-owned. */
 export class CodexConnection extends EventEmitter {
   constructor({ command = process.env.STEWARD_CODEX_PATH || 'codex.exe', workspace = process.env.STEWARD_WORKSPACE || 'F:\\workspace', spawnProcess = spawn } = {}) {
     super(); this.command = command; this.workspace = workspace; this.spawnProcess = spawnProcess;
-    this.serial = 0; this.pending = new Map(); this.requests = new Map(); this.contexts = new Map(); this.completed = new Set(); this.activeTurns = new Map(); this.items = new Map(); this.connected = false;
+    this.serial = 0; this.pending = new Map(); this.requests = new Map(); this.contexts = new Map(); this.completed = new Set(); this.activeTurns = new Map(); this.items = new Map(); this.chatListings = new Map(); this.connected = false;
   }
   async connect() {
     if (this.connected) return;
@@ -21,7 +23,7 @@ export class CodexConnection extends EventEmitter {
       let exited = false;
       const lost = () => { if (this.proc !== child || exited) return; exited = true; this.connected = false; this.connecting = null; for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(new Error('Codex 连接已断开，请重新连接后检查任务。')); } this.pending.clear(); this.requests.clear(); this.activeTurns.clear(); this.emit('disconnected'); };
       this.proc.on('error', lost); this.proc.on('exit', lost);
-      await this.request('initialize', { clientInfo: { name: 'personal_steward', title: '个人管家', version: '0.2.0' }, capabilities: { experimentalApi: true } });
+      await this.request('initialize', { clientInfo: { name: 'personal_steward', title: '个人管家', version: '0.2.2' }, capabilities: { experimentalApi: true } });
       this.write({ method: 'initialized' }); this.connected = true;
     })();
     try { await this.connecting; } catch (error) { this.proc?.kill(); this.connecting = null; throw error; }
@@ -94,7 +96,39 @@ export class CodexConnection extends EventEmitter {
     finally { clearTimeout(timer); this.off('turnCompleted', listener); this.off('disconnected', disconnected); }
   }
   async history(chatId) { const result = await this.call('thread/read', { threadId: chatId, includeTurns: true }); return result.thread; }
-  async list({ cursor, search = '' } = {}) { const result = await this.call('thread/list', { limit: 30, cwd: this.workspace, cursor: cursor || null, searchTerm: search || null, sortKey: 'updated_at' }); return { threads: result.data.map((t) => ({ id: t.id, title: t.name || t.preview || '未命名聊天', updatedAt: t.updatedAt, status: t.status })), nextCursor: result.nextCursor ?? null }; }
+  async list({ cursor, search = '', excludeIds = [] } = {}) {
+    const query = search.trim().toLocaleLowerCase(), now = Date.now();
+    for (const [key, snapshot] of this.chatListings) if (now - snapshot.createdAt > 1800000) this.chatListings.delete(key);
+    let key, offset = 0, snapshot;
+    if (cursor) {
+      const match = /^([a-f0-9-]{36}):(\d+)$/.exec(cursor);
+      key = match?.[1]; offset = Number(match?.[2]); snapshot = this.chatListings.get(key);
+      if (!snapshot || snapshot.query !== query || !Number.isSafeInteger(offset) || offset < 0 || offset > snapshot.threads.length) throw new Error('聊天列表已更新，请点击刷新重新读取。');
+    } else {
+      const normalize = (value) => typeof value === 'string' && value ? path.win32.normalize(value).replace(/[\\/]+$/, '').toLocaleLowerCase() : null;
+      const workspace = normalize(this.workspace), excluded = new Set(excludeIds), threads = new Map(), seenCursors = new Set();
+      let pageCursor = null, excludedCount = 0;
+      do {
+        // The indexed cwd can lag behind the cwd repaired from session logs.
+        // Read every metadata page before comparing the returned, normalized cwd.
+        const result = await this.call('thread/list', { limit: 100, cursor: pageCursor, sortKey: 'updated_at', modelProviders: [], sourceKinds: ['cli', 'vscode', 'appServer', 'unknown'], archived: false });
+        for (const thread of result.data) {
+          if (thread.ephemeral || normalize(thread.cwd) !== workspace) continue;
+          if (excluded.has(thread.id)) { excludedCount++; continue; }
+          const title = thread.name || thread.preview || '未命名聊天';
+          if (!query || title.toLocaleLowerCase().includes(query)) threads.set(thread.id, { id: thread.id, title, updatedAt: thread.updatedAt, status: thread.status });
+        }
+        pageCursor = result.nextCursor ?? null;
+        if (pageCursor && seenCursors.has(pageCursor)) throw new Error('聊天分页没有继续，请刷新后重试。');
+        if (pageCursor) seenCursors.add(pageCursor);
+      } while (pageCursor);
+      key = randomUUID(); snapshot = { query, threads: [...threads.values()].sort((a, b) => b.updatedAt - a.updatedAt), excludedCount, createdAt: Date.now() };
+      this.chatListings.set(key, snapshot);
+      if (this.chatListings.size > 10) this.chatListings.delete(this.chatListings.keys().next().value);
+    }
+    const end = offset + 30;
+    return { threads: snapshot.threads.slice(offset, end), total: snapshot.threads.length, excludedCount: snapshot.excludedCount, workspace: this.workspace, nextCursor: end < snapshot.threads.length ? `${key}:${end}` : null };
+  }
   publicRequests(chatIds) { return [...this.requests.values()].filter((r) => chatIds.has(r.params.threadId)).map((r) => ({ id: String(r.id), method: r.method, threadId: r.params.threadId, params: r.params, item: this.items.get(`${r.params.threadId}:${r.params.itemId}`) || null })); }
   reply(id, response) {
     const request = this.requests.get(id); if (!request) throw new Error('这个请求已经结束。');

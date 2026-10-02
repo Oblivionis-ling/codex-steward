@@ -58,3 +58,27 @@ test('连接断开使未完成 RPC 失败，重连后旧进程事件不影响新
   const pending = runtime.request('initialize'); children[0].emit('exit', 1); await assert.rejects(pending, /已断开/);
   await runtime.connect(); assert.equal(children.length, 2); children[0].emit('exit', 1); assert.equal(runtime.connected, true);
 });
+
+test('聊天列表核对完整分页与返回目录，避免旧 cwd 索引漏项，排除临时和其他项目', async () => {
+  const runtime = new CodexConnection({ workspace: 'F:\\workspace' }), calls = [];
+  const thread = (id, cwd, name = id) => ({ id, cwd, name, updatedAt: 100, status: { type: 'notLoaded' } });
+  runtime.call = async (method, params) => { calls.push({ method, params }); return params.cursor ? { data: [thread('old-index', 'f:/WORKSPACE/'), thread('subproject', 'F:\\workspace\\Self'), { ...thread('ephemeral', 'F:\\workspace'), ephemeral: true }], nextCursor: null } : { data: [thread('regular', 'F:\\workspace'), thread('auxiliary', 'F:\\workspace'), thread('other', 'D:\\another')], nextCursor: 'page-two' }; };
+  const result = await runtime.list({ excludeIds: ['auxiliary'] });
+  assert.deepEqual(result.threads.map((t) => t.id), ['regular', 'old-index']); assert.equal(result.total, 2); assert.equal(result.excludedCount, 1);
+  assert.equal(calls.length, 2); assert.equal(calls[1].params.cursor, 'page-two');
+  assert.ok(calls.every(({ method, params }) => method === 'thread/list' && !('cwd' in params) && !('searchTerm' in params)));
+  assert.ok(calls[0].params.sourceKinds.includes('appServer')); assert.deepEqual(calls[0].params.modelProviders, []);
+});
+
+test('标题搜索忽略英文大小写，用户分页使用稳定快照，新聊天不使后页遗漏或重复', async () => {
+  const runtime = new CodexConnection({ workspace: 'F:\\workspace' }); let calls = 0;
+  const threads = Array.from({ length: 35 }, (_, i) => ({ id: `chat-${i}`, name: `Codex 项目 ${i}`, cwd: 'F:\\workspace', updatedAt: 100 - i }));
+  runtime.call = async () => { calls++; return { data: threads, nextCursor: null }; };
+  const first = await runtime.list({ search: 'codex' }); assert.equal(first.threads.length, 30); assert.equal(first.total, 35); assert.ok(first.nextCursor);
+  threads.unshift({ id: 'new', name: 'Codex 新聊天', cwd: 'F:\\workspace', updatedAt: 101 });
+  const last = await runtime.list({ cursor: first.nextCursor, search: 'CODEX' }); assert.equal(last.threads.length, 5); assert.equal(last.nextCursor, null); assert.equal(calls, 1);
+  assert.equal(new Set([...first.threads, ...last.threads].map((t) => t.id)).size, 35);
+  await assert.rejects(runtime.list({ cursor: first.nextCursor, search: 'other' }), /重新读取/);
+  assert.equal((await runtime.list({ search: 'codex' })).total, 36);
+  runtime.call = async () => ({ data: [], nextCursor: 'repeated' }); await assert.rejects(runtime.list(), /分页没有继续/);
+});

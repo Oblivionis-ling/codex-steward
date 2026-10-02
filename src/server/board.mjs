@@ -16,12 +16,12 @@ const historyResult = obj({ assignments: z.array(historyAssignment).min(1).max(3
 export const boardSchemas = {
   steward_project_create: obj({ title, goal: text.default('') }),
   steward_project_update: obj({ id, title, goal: text }),
-  steward_project_move: obj({ id, phase: phaseSchema }),
+  steward_project_move: obj({ id, phase: phaseSchema, expectedPhase: phaseSchema.optional() }),
   steward_project_reopen: obj({ id }),
   steward_task_create: obj({ projectId: id, title, description: text.default('') }),
   steward_task_update: obj({ id, title, description: text, criteria: criteriaSchema }),
   steward_task_confirm: obj({ id }),
-  steward_task_move: obj({ id, phase: phaseSchema }),
+  steward_task_move: obj({ id, phase: phaseSchema, expectedPhase: phaseSchema.optional() }),
   steward_task_start: obj({ id, feedback: z.string().max(10000).optional() }),
   steward_task_report: obj({ id, runId: id, state: z.enum(['running', 'waiting', 'failed']), progress: z.string().min(1).max(1200) }),
   steward_submit_delivery: obj({ id, runId: id, hash: id, report: deliverySchema }),
@@ -29,7 +29,7 @@ export const boardSchemas = {
   steward_apply_proposal: obj({ id, tasks: splitSchema.shape.tasks.optional(), criteria: criteriaSchema.optional(), assignments: historyResult.shape.assignments.optional() }),
   steward_cancel_proposal: obj({ id }),
   steward_codex_status: obj(),
-  steward_chats: obj({ cursor: z.string().max(2000).optional(), search: z.string().max(200).optional() }),
+  steward_chats: obj({ cursor: z.string().max(2000).optional(), search: z.string().max(200).optional(), includeAuxiliary: z.boolean().default(false) }),
   steward_chat_history: obj({ taskId: id }),
   steward_chat_attach: obj({ taskId: id, chatId: id, main: z.boolean().default(false) }),
   steward_chat_send: obj({ taskId: id, message: z.string().trim().min(1).max(10000) }),
@@ -163,8 +163,9 @@ export function createBoard({ store, workspace, runtime = new CodexConnection({ 
     steward_project_create: (input) => store.mutate((s) => { const project = newProject(input); s.projects.unshift(project); return { project }; }),
     steward_project_update: ({ id, title, goal }) => store.mutate((s) => { const project = requireUnlockedProject(s, id); Object.assign(project, { title, goal }); touch(project); return { project }; }),
     steward_project_reopen: ({ id }) => store.mutate((s) => { const project = requireUnlockedProject(s, id); if (project.phase !== 'done') throw new Error('只有已结项项目需要重新打开。'); project.phase = 'ready'; touch(project); return { project }; }),
-    steward_project_move: async ({ id, phase }) => {
+    steward_project_move: async ({ id, phase, expectedPhase }) => {
       const state = await store.read(); const project = requireUnlockedProject(state, id);
+      if (expectedPhase && project.phase !== expectedPhase) throw new Error('项目阶段已变化，请刷新后重新拖动。');
       const delta = phases.indexOf(phase) - phases.indexOf(project.phase); if (Math.abs(delta) !== 1) throw new Error('请逐步推进或回退。');
       const transitionId = delta < 0 ? randomUUID() : null;
       const childIds = transitionId ? await store.mutate((s) => { const p = requireUnlockedProject(s, id); if (p.phase !== project.phase) throw new Error('项目阶段已变化，请刷新。'); p.transitionId = transitionId; return s.tasks.filter((t) => t.projectId === id).map((t) => t.id); }) : [];
@@ -176,8 +177,10 @@ export function createBoard({ store, workspace, runtime = new CodexConnection({ 
     steward_task_create: (input) => store.mutate((s) => { const p = requireUnlockedProject(s, input.projectId); if (p.phase === 'done') throw new Error('请先重新打开已结项的项目。'); const task = newTask(input); s.tasks.push(task); return { task }; }),
     steward_task_update: ({ id, title, description, criteria }) => store.mutate((s) => { const t = requireTask(s, id); requireUnlockedProject(s, t.projectId); editTask(t, { title, description, criteria }); return { task: t }; }),
     steward_task_confirm: ({ id }) => store.mutate((s) => { const t = requireTask(s, id); if (!t.criteria.length || !t.description.trim()) throw new Error('请补充任务说明和至少一条验收标准。'); t.confirmedHash = taskHash(t); touch(t); return { task: t }; }),
-    steward_task_move: async ({ id, phase }) => {
-      const state = await store.read(), task = requireTask(state, id); requireUnlockedProject(state, task.projectId); const delta = phases.indexOf(phase) - phases.indexOf(task.phase); if (Math.abs(delta) !== 1) throw new Error('请逐步推进或回退。');
+    steward_task_move: async ({ id, phase, expectedPhase }) => {
+      const state = await store.read(), task = requireTask(state, id); requireUnlockedProject(state, task.projectId);
+      if (expectedPhase && task.phase !== expectedPhase) throw new Error('小卡阶段已变化，请刷新后重新拖动。');
+      const delta = phases.indexOf(phase) - phases.indexOf(task.phase); if (Math.abs(delta) !== 1) throw new Error('请逐步推进或回退。');
       if (delta > 0 && phase === 'active') return startTask({ id });
       if (delta > 0 && phase === 'review') throw new Error('主聊天提交完整成果后会自动进入待验收。');
       if (delta < 0) await stopTasks([id]);
@@ -190,7 +193,7 @@ export function createBoard({ store, workspace, runtime = new CodexConnection({ 
       if (report.checks.length !== t.criteria.length || report.checks.some((c, i) => c.criterion !== t.criteria[i] || !c.passed || !c.evidence.trim())) throw new Error('请按原顺序覆盖每条已确认标准，并提供真实通过证据。');
       t.pendingDelivery = report; touch(t); return { accepted: true, message: '交付证据已保存，真实执行结束后进入待验收。' };
     }),
-    steward_codex_status: () => runtime.status(), steward_chats: (input) => runtime.list(input),
+    steward_codex_status: () => runtime.status(), steward_chats: async ({ includeAuxiliary, ...input }) => { const state = await store.read(); return runtime.list({ ...input, excludeIds: includeAuxiliary ? [] : state.proposals.map((p) => p.chatId).filter(Boolean) }); },
     steward_chat_history: async ({ taskId }) => { const t = requireTask(await store.read(), taskId); if (!t.mainChatId) return { messages: [], status: { type: 'notLoaded' } }; const thread = await runtime.history(t.mainChatId); return { messages: (thread.turns || []).flatMap((turn) => (turn.items || []).filter((i) => ['userMessage', 'agentMessage'].includes(i.type)).map((item) => ({ id: item.id, role: item.type === 'userMessage' ? 'user' : 'assistant', text: item.text || (item.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n') }))), status: thread.status, url: `codex://threads/${encodeURIComponent(t.mainChatId)}` }; },
     steward_chat_attach: async ({ taskId, chatId, main }) => { await runtime.history(chatId); return store.mutate((s) => { const t = requireTask(s, taskId); if (main) { if (t.runId || ['starting', 'running', 'stopping'].includes(t.execution)) throw new Error('执行过的小卡请保留原主聊天，可添加关联聊天。'); if (s.tasks.some((x) => x.id !== t.id && x.mainChatId === chatId)) throw new Error('这个聊天已是另一张小卡的主聊天。'); t.mainChatId = chatId; } else if (!t.relatedChatIds.includes(chatId) && t.mainChatId !== chatId) t.relatedChatIds.push(chatId); touch(t); return { task: t }; }); },
     steward_chat_send: async ({ taskId, message }) => { const t = requireTask(await store.read(), taskId); if (!t.mainChatId || t.phase === 'done') throw new Error('请先启动小卡，或回退后继续。'); if (t.execution === 'running') { await runtime.call('turn/steer', { threadId: t.mainChatId, expectedTurnId: t.turnId, input: [{ type: 'text', text: message, text_elements: [] }] }); return { sent: true }; } return startTask({ id: taskId, message, ...(t.phase === 'review' ? { feedback: message } : {}) }); },
