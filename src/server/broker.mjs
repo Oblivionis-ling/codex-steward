@@ -10,12 +10,12 @@ export function brokerClient() {
   async function health() { try { const r = await fetch(`${base}/health`, { signal: AbortSignal.timeout(1000) }); if (!r.ok) return null; return await r.json(); } catch { return null; } }
   async function ensure() {
     const alive = await health();
-    if (alive) { if (alive.version !== '0.2.3-dev.1' || path.resolve(alive.dataDir) !== dataDir) throw new Error('本机服务的版本或数据目录不一致，请关闭旧预览服务后重试。'); return; }
+    if (alive) { if (alive.version !== '0.2.3-dev.2' || path.resolve(alive.dataDir) !== dataDir) throw new Error('本机服务的版本或数据目录不一致，请关闭旧预览服务后重试。'); return; }
     if (!startup) startup = (async () => {
       const serverPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'http.mjs');
       const child = spawn(process.execPath, [serverPath], { windowsHide: true, detached: true, stdio: 'ignore', env: { ...process.env, PORT: String(port) }, cwd: path.dirname(serverPath) });
       child.on('error', () => {}); child.unref();
-      for (let i = 0; i < 60; i++) { const result = await health(); if (result) { if (result.version !== '0.2.3-dev.1' || path.resolve(result.dataDir) !== dataDir) throw new Error('本机端口已由另一数据目录使用。'); return; } await new Promise((resolve) => setTimeout(resolve, 100)); }
+      for (let i = 0; i < 60; i++) { const result = await health(); if (result) { if (result.version !== '0.2.3-dev.2' || path.resolve(result.dataDir) !== dataDir) throw new Error('本机端口已由另一数据目录使用。'); return; } await new Promise((resolve) => setTimeout(resolve, 100)); }
       throw new Error('本机任务服务未能启动，请检查端口与 Node.js。');
     })().finally(() => { startup = null; });
     await startup;

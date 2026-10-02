@@ -20,6 +20,7 @@ test('打包 MCP 能初始化、注册左右入口、加载独立 UI 并保存�
   const tools = await client.listTools();
   assert.ok(tools.tools.some((tool) => tool.name === 'steward_records'));
   assert.ok(tools.tools.some((tool) => tool.name === 'steward_apply_archive'));
+  assert.ok(tools.tools.some((tool) => tool.name === 'steward_card_create'));
   const open = tools.tools.find((tool) => tool.name === 'steward_open');
   assert.deepEqual(open._meta['openai/ui'].entrypoints, [{ type: 'global' }]);
   assert.deepEqual(tools.tools.find((tool) => tool.name === 'steward_panel')._meta['openai/ui'].entrypoints, [{ type: 'thread' }]);
@@ -31,6 +32,8 @@ test('打包 MCP 能初始化、注册左右入口、加载独立 UI 并保存�
   assert.equal(created.isError, undefined); assert.equal(created.structuredContent.record.type, 'todo');
   const state = await client.callTool({ name: 'steward_state', arguments: {} });
   assert.equal(state.structuredContent.records.length, 1);
+  const card = await client.callTool({ name: 'steward_card_create', arguments: { title: '协议单卡', description: '不启动聊天' } });
+  assert.equal(card.isError, undefined); assert.equal(card.structuredContent.task.projectId, card.structuredContent.project.id); assert.equal(card.structuredContent.task.mainChatId, null);
   assert.equal(errors, '');
 });
 

@@ -8,7 +8,7 @@ import { taskHash } from '../src/server/board-model.mjs';
 import { MockCodex } from './fixtures/mock-codex.mjs';
 
 async function emptySetup() { await fs.mkdir('_work', { recursive: true }); const dataDir = await fs.mkdtemp(path.resolve('_work/board-test-')); const runtime = new MockCodex(); const service = createService({ dataDir, runtime }); return { service, runtime, dataDir }; }
-async function setup() { const context = await emptySetup(); const { project } = await context.service.call('steward_project_create', { title: '测试项目', goal: '验证真实推进闭环' }); return { ...context, project }; }
+async function setup() { const context = await emptySetup(); const { project } = await context.service.call('steward_project_create', { title: '测试项目', goal: '验证真实推进闭环', layout: 'group' }); return { ...context, project }; }
 async function ready(service, projectId, title = '测试小卡') { const { task } = await service.call('steward_task_create', { projectId, title, description: '制作可验收的结果' }); await service.call('steward_task_move', { id: task.id, phase: 'ready' }); await service.call('steward_task_update', { id: task.id, title, description: task.description, criteria: ['结果可以打开并验证'] }); return task.id; }
 const reportFor = (task) => ({ summary: '结果已交付', checks: task.criteria.map((criterion) => ({ criterion, passed: true, evidence: '真实验证结果在所关联主聊天中' })), materials: [{ title: '项目决定', content: '保存一条可复用结论' }] });
 async function deliver(service, runtime, task) { await service.call('steward_submit_delivery', { id: task.id, runId: task.runId, hash: task.confirmedHash, report: reportFor(task) }); runtime.complete(task.mainChatId); await service.board.flush(); }

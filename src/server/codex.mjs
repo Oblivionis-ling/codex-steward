@@ -25,7 +25,7 @@ export class CodexConnection extends EventEmitter {
       let exited = false;
       const lost = () => { if (this.proc !== child || exited) return; exited = true; this.connected = false; this.connecting = null; for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(new Error('Codex 连接已断开，请重新连接后检查任务。')); } this.pending.clear(); this.requests.clear(); this.activeTurns.clear(); this.loadedThreads.clear(); this.preparingThreads.clear(); this.emit('disconnected'); };
       this.proc.on('error', lost); this.proc.on('exit', lost);
-      await this.request('initialize', { clientInfo: { name: 'personal_steward', title: '个人管家', version: '0.2.3-dev.1' }, capabilities: { experimentalApi: true } });
+      await this.request('initialize', { clientInfo: { name: 'personal_steward', title: '个人管家', version: '0.2.3-dev.2' }, capabilities: { experimentalApi: true } });
       this.write({ method: 'initialized' }); this.connected = true;
     })();
     try { await this.connecting; } catch (error) { this.proc?.kill(); this.connecting = null; throw error; }

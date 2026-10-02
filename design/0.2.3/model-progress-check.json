@@ -1,0 +1,159 @@
+{
+  "ephemeral": true,
+  "readOnly": true,
+  "syntheticOnly": true,
+  "phases": [
+    {
+      "expected": "idea",
+      "actual": "idea",
+      "confidence": "high",
+      "evidenceCount": 1
+    },
+    {
+      "expected": "ready",
+      "actual": "ready",
+      "confidence": "high",
+      "evidenceCount": 2
+    },
+    {
+      "expected": "active",
+      "actual": "active",
+      "confidence": "high",
+      "evidenceCount": 2
+    },
+    {
+      "expected": "review",
+      "actual": "review",
+      "confidence": "high",
+      "evidenceCount": 2
+    },
+    {
+      "expected": "done",
+      "actual": "done",
+      "confidence": "high",
+      "evidenceCount": 1
+    }
+  ],
+  "assignments": [
+    {
+      "chatId": "idea",
+      "projectId": null,
+      "projectTitle": "课程资料工具",
+      "taskId": null,
+      "title": "讨论课程资料工具构想",
+      "description": "探索课程资料工具的用途与范围，目前仅讨论想法。",
+      "phase": "idea",
+      "assessment": {
+        "summary": "只有初步想法，范围尚未确定。",
+        "reason": "用户明确表示还没确定范围、只讨论想法，符合 idea。",
+        "confidence": "high",
+        "evidence": [
+          {
+            "turnId": "idea-scope",
+            "role": "user",
+            "quote": "想做一个课程资料工具，还没确定范围，只讨论想法。"
+          }
+        ]
+      }
+    },
+    {
+      "chatId": "ready",
+      "projectId": null,
+      "projectTitle": "本地搜索工具",
+      "taskId": null,
+      "title": "开发本地导入与搜索工具",
+      "description": "制作本地搜索工具，范围限定为导入与搜索，待启动实现。",
+      "phase": "ready",
+      "assessment": {
+        "summary": "范围已确认，尚未开始实现。",
+        "reason": "用户确认导入与搜索的范围，并明确要求记录为待启动、本次未开始实现，符合 ready。",
+        "confidence": "high",
+        "evidence": [
+          {
+            "turnId": "ready-scope",
+            "role": "user",
+            "quote": "制作本地搜索工具，范围是导入与搜索。"
+          },
+          {
+            "turnId": "ready-latest",
+            "role": "user",
+            "quote": "我确认这个范围，先记录为待启动，本次还没有开始实现。"
+          }
+        ]
+      }
+    },
+    {
+      "chatId": "active",
+      "projectId": null,
+      "projectTitle": "作品集网站",
+      "taskId": null,
+      "title": "完善作品集网站导入功能",
+      "description": "继续完善作品集网站，完成尚未完成的新增导入需求。",
+      "phase": "active",
+      "assessment": {
+        "summary": "旧版本已交付，新增导入需求仍未完成。",
+        "reason": "最新用户消息要求继续开发未完成的导入需求，因此当前范围为 active，旧版本交付不能覆盖新需求。",
+        "confidence": "high",
+        "evidence": [
+          {
+            "turnId": "active-scope",
+            "role": "user",
+            "quote": "继续完善作品集网站。"
+          },
+          {
+            "turnId": "active-latest",
+            "role": "user",
+            "quote": "上个版本已经交付，但新的导入需求仍未完成，请继续开发。"
+          }
+        ]
+      }
+    },
+    {
+      "chatId": "review",
+      "projectId": null,
+      "projectTitle": "资料归档工具",
+      "taskId": null,
+      "title": "实现资料归档工具",
+      "description": "实现资料归档工具；导入与搜索已报告验证，交付成果等待用户验收。",
+      "phase": "review",
+      "assessment": {
+        "summary": "已有交付及验证说明，等待用户验收。",
+        "reason": "最新助手消息说明工具已交付、功能已验证且成果路径已提供，符合 review；未见用户验收原文，不能判为 done。",
+        "confidence": "high",
+        "evidence": [
+          {
+            "turnId": "review-scope",
+            "role": "user",
+            "quote": "实现资料归档工具。"
+          },
+          {
+            "turnId": "review-latest",
+            "role": "assistant",
+            "quote": "资料工具已交付，导入与搜索已验证，成果路径已提供，等待你验收。"
+          }
+        ]
+      }
+    },
+    {
+      "chatId": "done",
+      "projectId": null,
+      "projectTitle": "本周学习总结",
+      "taskId": null,
+      "title": "整理本周学习总结",
+      "description": "整理本周学习总结，当前范围已由用户检查并验收通过。",
+      "phase": "done",
+      "assessment": {
+        "summary": "用户明确验收通过，当前范围全部完成。",
+        "reason": "最新用户消息明确确认已检查、验收通过并允许结项，且没有后续未完成请求，符合 done。",
+        "confidence": "high",
+        "evidence": [
+          {
+            "turnId": "done-latest",
+            "role": "user",
+            "quote": "我已检查学习总结并验收通过，当前范围全部完成，可以结项。"
+          }
+        ]
+      }
+    }
+  ]
+}

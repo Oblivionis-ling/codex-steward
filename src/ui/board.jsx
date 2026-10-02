@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, MoreHorizontal, GripVertical } from 'lucide-react';
 import { Icon, Button } from './components.jsx';
 import { PHASES, PHASE_NAMES, dropIntent } from './transitions.js';
+import { isSingleProject } from '../shared/card-layout.js';
 
 export { PHASES, PHASE_NAMES } from './transitions.js';
 export const EXEC_NAMES = { idle: '', starting: '正在启动', running: '运行中', waiting: '等你处理', failed: '执行失败', stopping: '正在停止', blocked: '聊天被占用' };
@@ -11,7 +12,9 @@ export function Board({ data, expanded, expand, openProject, openTask, openChat,
   const [dragging, setDragging] = useState(null), session = useRef(null), board = useRef(null);
   const query = search.trim().toLocaleLowerCase();
   const projects = data.projects.filter((p) => !query || `${p.title} ${p.goal}`.toLocaleLowerCase().includes(query) || data.tasks.some((t) => t.projectId === p.id && `${t.title} ${t.description}`.toLocaleLowerCase().includes(query)));
-  const children = data.tasks.filter((t) => t.projectId === expanded && (!query || `${t.title} ${t.description}`.toLocaleLowerCase().includes(query)));
+  const singleIds = new Set(projects.filter((p) => isSingleProject(data, p)).map((p) => p.id));
+  const groups = projects.filter((p) => !singleIds.has(p.id));
+  const children = data.tasks.filter((t) => (singleIds.has(t.projectId) || t.projectId === expanded) && (!query || `${t.title} ${t.description}`.toLocaleLowerCase().includes(query) || singleIds.has(t.projectId) && `${projects.find((p) => p.id === t.projectId).title} ${projects.find((p) => p.id === t.projectId).goal}`.toLocaleLowerCase().includes(query)));
   const cancel = () => { session.current = null; setDragging(null); };
   const commit = (current) => {
     cancel();
@@ -57,7 +60,7 @@ export function Board({ data, expanded, expand, openProject, openTask, openChat,
     <span id="drag-help" className="sr-only">拖动手柄到相邻栏。键盘：空格拿起，左右键选择，回车放下，Escape 取消。</span>
     <span className="sr-only" role="status" aria-live="polite">{dragging && `${dragging.item.title}，${PHASE_NAMES[dragging.target] || '看板外'}。${intent?.reason || '移到目标栏后放下。'}`}</span>
     {PHASES.map((phase) => {
-    const big = projects.filter((p) => p.phase === phase), small = children.filter((t) => t.phase === phase);
+    const big = groups.filter((p) => p.phase === phase), small = children.filter((t) => t.phase === phase);
     const selected = dragging?.target === phase && dragging.item.phase !== phase;
     return <section className={`lane ${selected ? intent?.allowed ? 'drop-allowed' : 'drop-blocked' : ''}`} data-phase={phase} key={phase} aria-label={PHASE_NAMES[phase]}><header className="lane-header"><h2>{PHASE_NAMES[phase]}</h2><span aria-label="卡片数量">{big.length + small.length}</span></header>
       {selected && <p className="drop-hint">{intent.reason}</p>}
@@ -66,8 +69,8 @@ export function Board({ data, expanded, expand, openProject, openTask, openChat,
         <button className="project-copy" onClick={() => openProject(project.id)}><h3>{project.title}</h3><span>{tasks.filter((t) => t.phase === 'done').length}/{tasks.length} 已完成</span></button>
         <button className="icon-button" aria-label={`项目详情：${project.title}`} onClick={() => openProject(project.id)}><Icon as={MoreHorizontal} size={16}/></button>
       </article>; })}
-      {small.map((task) => <article className={`task-card ${needsAttention(task) ? 'needs-attention' : ''} ${dragging?.item.id === task.id ? 'card-dragging' : ''}`} data-card-id={`task:${task.id}`} key={task.id}>
-        <div className="task-heading">{handle(task, 'task')}<span className={`status-dot ${task.execution === 'blocked' ? 'blocked' : task.phase === 'done' ? 'done' : task.phase === 'review' ? 'review' : task.execution === 'failed' ? 'failed' : ''}`}/><button className="card-title" onClick={() => openTask(task.id)}><h3>{task.title}</h3></button></div>
+      {small.map((task) => <article className={`task-card ${singleIds.has(task.projectId) ? 'single-card' : ''} ${needsAttention(task) ? 'needs-attention' : ''} ${dragging?.item.id === task.id ? 'card-dragging' : ''}`} data-card-id={`task:${task.id}`} key={task.id}>
+        <div className="task-heading">{handle(task, 'task')}<span className={`status-dot ${task.execution === 'blocked' ? 'blocked' : task.phase === 'done' ? 'done' : task.phase === 'review' ? 'review' : task.execution === 'failed' ? 'failed' : ''}`}/><button className="card-title" onClick={() => openTask(task.id)}><h3>{task.title}</h3></button>{singleIds.has(task.projectId) && <button className="icon-button" aria-label={`管理与拆分：${task.title}`} onClick={() => openProject(task.projectId, 'tasks')} title="项目资料与拆分"><Icon as={MoreHorizontal} size={15}/></button>}</div>
         <div className={`task-status ${task.execution === 'failed' ? 'error-text' : task.execution === 'blocked' ? 'blocked-text' : ''}`}>{EXEC_NAMES[task.execution] || (task.phase === 'idea' ? '灵感' : PHASE_NAMES[task.phase])}</div>
         <p className="latest-progress">{task.error || task.progress || (task.phase === 'ready' ? '确认任务目标与交付要求。' : task.description || '补充任务说明，逐步推进。')}</p>
         <div className="card-actions"><Button kind="outline" onClick={() => openTask(task.id, task.phase === 'review' ? 'acceptance' : 'description')}>{task.phase === 'review' ? '验收详情' : '详情'}</Button><Button kind="text" onClick={() => openChat(task.id)}>主聊天</Button></div>

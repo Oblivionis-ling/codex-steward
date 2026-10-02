@@ -18,7 +18,7 @@ export function dropIntent(item, kind, phase, data) {
   }
   if (phase === 'review') return { allowed: false, reason: '提交完整交付证据并结束执行后，自动进入待验收。' };
   if (phase === 'done') {
-    if (!item.delivery || !item.deliveryHash || item.deliveryHash !== item.confirmedHash) return { allowed: false, reason: '本轮尚无完整交付证据，请打开验收详情。' };
+    if (!(item.historyProgress?.eligible && item.historyProgress.assessment.evidence.length) && (!item.delivery || !item.deliveryHash || item.deliveryHash !== item.confirmedHash)) return { allowed: false, reason: '本轮尚无完整交付证据，请打开验收详情。' };
     return { allowed: true, action: 'acceptTask', reason: '检查交付证据，确认后结项' };
   }
   return { allowed: true, action: 'move', reason: `推进到${PHASE_NAMES[phase]}` };

@@ -1,12 +1,12 @@
 {
   "name": "personal-steward",
-  "version": "0.2.3-dev.1",
-  "description": "五栏项目与子任务看板；确认验收标准后直接启动主聊天，跟进进展、验收与项目资料。",
+  "version": "0.2.3-dev.2",
+  "description": "五栏任务看板，默认一张卡；AI 整理聊天并判断进度，需要时拆子任务，沿用主聊天执行与验收。",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "个人管家",
     "shortDescription": "从任务看板进入 Codex，推进到验收。",
-    "longDescription": "在 Codex 左侧打开五栏看板。长期项目大卡与子任务小卡共用阶段，每个小卡沿用一个主聊天，结合验收标准推进、交付、返工和结项。资料与回顾围绕项目保存在本机。",
+    "longDescription": "在 Codex 左侧打开五栏看板，默认一个任务一张卡，需要时再拆子任务。AI 根据所选聊天的目标和最新进展建议卡片、阶段与原文依据，由用户确认保存。每张任务卡沿用一个主聊天，结合验收标准推进、交付、返工和结项。资料与回顾保存在本机。",
     "developerName": "Ling",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],

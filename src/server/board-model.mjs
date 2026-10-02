@@ -1,12 +1,16 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
+import { isSingleProject, inferredProjectPhase } from '../shared/card-layout.js';
+export { isSingleProject, inferredProjectPhase } from '../shared/card-layout.js';
 
 const text = (n) => z.string().max(n);
 export const phaseSchema = z.enum(['idea', 'ready', 'active', 'review', 'done']);
 export const phases = ['idea', 'ready', 'active', 'review', 'done'];
 export const phaseNames = { idea: '灵感池', ready: '待启动', active: '进行中', review: '待验收', done: '已结项' };
 export const criteriaSchema = z.array(z.string().trim().min(1).max(1500)).max(30);
-export const projectSchema = z.object({ id: text(80), title: text(240), goal: text(30000), phase: phaseSchema, transitionId: text(80).nullable().default(null), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
+export const projectSchema = z.object({ id: text(80), title: text(240), goal: text(30000), phase: phaseSchema, layout: z.enum(['auto', 'group']).default('auto'), transitionId: text(80).nullable().default(null), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
+export const assessmentSchema = z.object({ summary: text(1200), reason: text(2000), confidence: z.enum(['low', 'medium', 'high']), evidence: z.array(z.object({ turnId: text(100).min(1), role: z.enum(['user', 'assistant']), quote: z.string().trim().min(1).max(1500) })).max(6) });
+export const historyProgressSchema = z.object({ phase: phaseSchema, assessment: assessmentSchema, chatId: text(100), sourceHash: text(100), taskHash: text(100), eligible: z.boolean(), importedAt: z.string().datetime() });
 export const deliverySchema = z.object({ summary: z.string().min(1).max(8000), checks: z.array(z.object({ criterion: z.string().max(1500), passed: z.boolean(), evidence: z.string().min(1).max(3000) })).min(1).max(30), materials: z.array(z.object({ title: z.string().min(1).max(240), content: z.string().min(1).max(30000) })).max(15).default([]) });
 export const taskSchema = z.object({
   id: text(80), projectId: text(80), title: text(240), description: text(30000), phase: phaseSchema, sourceRecordId: text(80).nullable().default(null), sourceActionKey: text(240).nullable().default(null),
@@ -14,10 +18,11 @@ export const taskSchema = z.object({
   runId: text(80).nullable(), turnId: text(100).nullable(), execution: z.enum(['idle', 'starting', 'running', 'waiting', 'failed', 'stopping', 'blocked']),
   blockedRequest: z.object({ reason: z.enum(['writer', 'active']), feedback: text(10000).optional(), message: text(10000).optional() }).nullable().default(null),
   progress: text(1200), error: text(2000), pendingDelivery: deliverySchema.nullable(), delivery: deliverySchema.nullable(), deliveryHash: text(100).nullable().default(null),
+  historyProgress: historyProgressSchema.nullable().default(null),
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 });
-export const proposalSchema = z.object({ id: text(80), projectId: text(80).nullable(), taskId: text(80).nullable(), type: z.enum(['split', 'criteria', 'history', 'question', 'review']), status: z.enum(['running', 'ready', 'applied', 'error', 'cancelled']), sourceHash: text(100), selectedChatIds: z.array(text(100)).max(30).default([]), sourceHashes: z.record(z.string(), z.string()).default({}), question: text(3000).default(''), from: text(30).default(''), to: text(30).default(''), chatId: text(100).nullable(), turnId: text(100).nullable(), result: z.unknown(), error: text(2000), createdAt: z.string().datetime() });
-export function newProject({ title, goal = '' }) { const now = new Date().toISOString(); return projectSchema.parse({ id: randomUUID(), title: title.trim(), goal: goal.trim(), phase: 'idea', createdAt: now, updatedAt: now }); }
+export const proposalSchema = z.object({ id: text(80), projectId: text(80).nullable(), taskId: text(80).nullable(), type: z.enum(['split', 'criteria', 'history', 'question', 'review']), status: z.enum(['running', 'ready', 'applied', 'error', 'cancelled']), sourceHash: text(100), selectedChatIds: z.array(text(100)).max(30).default([]), sourceHashes: z.record(z.string(), z.string()).default({}), chatHashes: z.record(z.string(), z.string()).default({}), destinationHashes: z.record(z.string(), z.string()).default({}), question: text(3000).default(''), from: text(30).default(''), to: text(30).default(''), chatId: text(100).nullable(), turnId: text(100).nullable(), result: z.unknown(), error: text(2000), createdAt: z.string().datetime() });
+export function newProject({ title, goal = '', layout = 'auto' }) { const now = new Date().toISOString(); return projectSchema.parse({ id: randomUUID(), title: title.trim(), goal: goal.trim(), layout, phase: 'idea', createdAt: now, updatedAt: now }); }
 export function newTask({ projectId, title, description = '', criteria = [], phase = 'idea' }) { const now = new Date().toISOString(); return taskSchema.parse({ id: randomUUID(), projectId, title: title.trim(), description: description.trim(), criteria, phase, confirmedHash: null, mainChatId: null, relatedChatIds: [], runId: null, turnId: null, execution: 'idle', progress: '', error: '', pendingDelivery: null, delivery: null, createdAt: now, updatedAt: now }); }
 export const taskHash = (task) => createHash('sha256').update(JSON.stringify([task.title, task.description, task.criteria])).digest('hex');
 export const projectHash = (project) => createHash('sha256').update(JSON.stringify([project.title, project.goal])).digest('hex');
@@ -25,7 +30,11 @@ export function requireProject(state, id) { const item = state.projects.find((p)
 export function requireUnlockedProject(state, id) { const project = requireProject(state, id); if (project.transitionId) throw new Error('整个项目正在停止并回退，请完成后再操作。'); return project; }
 export function requireTask(state, id) { const item = state.tasks.find((t) => t.id === id); if (!item) throw new Error('子任务不存在。'); return item; }
 export function touch(item) { item.updatedAt = new Date().toISOString(); }
-export function updateParent(state, projectId) { const project = requireProject(state, projectId); const children = state.tasks.filter((t) => t.projectId === projectId); if (project.phase !== 'done' && children.length && children.every((t) => t.phase === 'done')) { project.phase = 'review'; touch(project); } }
+export function updateParent(state, projectId, { infer = false } = {}) {
+  const project = requireProject(state, projectId), children = state.tasks.filter((t) => t.projectId === projectId), single = isSingleProject(state, project);
+  const next = inferredProjectPhase(children, single);
+  if (single || project.phase !== 'done' && (infer || next === 'review' || project.phase === 'review' && next === 'active')) { if (project.phase !== next) { project.phase = next; touch(project); } }
+}
 export function migrateState(raw) {
   if (raw.version === 2) return raw;
   if (raw.version !== 1) throw new Error('不支持的数据版本。');
