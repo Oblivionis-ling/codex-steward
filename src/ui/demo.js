@@ -1,7 +1,8 @@
-export const demoRecords = [
-  { id: 'demo-1', type: 'todo', title: '整理个人作品集的项目说明', content: '补充项目背景、关键决策和成果。', category: '工作', priority: 'high', summary: '补充项目背景、关键决策和成果。' },
-  { id: 'demo-2', type: 'material', title: '读完一篇关于知识管理的文章', content: '信息的价值，在于能再次找到它。', category: '学习', priority: 'medium', summary: '信息的价值，在于能再次找到它。', tags: ['知识管理'] },
-  { id: 'demo-3', type: 'idea', title: '给摄影作品加一页创作手记', content: '记录拍摄时的选择和现场感受。', category: '灵感', priority: 'medium', summary: '记录拍摄时的选择和现场感受。', tags: ['摄影'] },
-  { id: 'demo-4', type: 'todo', title: '试用新的笔记整理方法', content: '从最近一周的记录开始。', category: '学习', priority: 'medium', summary: '从最近一周的记录开始。' },
-].map((record) => ({ tags: [], keypoints: [], relatedIds: [], sourceId: null, completed: false, archived: false, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z', archivedAt: null, ...record }));
-export const isDemo = new URLSearchParams(location.search).get('demo') === '1';
+const date = '2026-10-02T00:00:00.000Z';
+const project = (id, title, phase, goal = '') => ({ id, title, phase, goal, createdAt: date, updatedAt: date });
+const task = (id, projectId, title, phase, progress, execution = 'idle') => ({ id, projectId, title, phase, progress, execution, description: progress, criteria: ['大卡与小卡共用五阶段，展开后按各自状态排列。', '回退项目时停止全部小卡并移至待启动。', '任务状态保存后，重新打开仍能恢复。'], confirmedHash: null, mainChatId: ['active', 'review', 'done'].includes(phase) ? `demo-${id}` : null, relatedChatIds: [], runId: null, turnId: null, error: '', delivery: null, pendingDelivery: null, createdAt: date, updatedAt: date });
+export const demo = { version: 2, projects: [project('course', '课程资料整理', 'idea'), project('portfolio', '作品集网站', 'ready'), project('steward', '个人管家插件', 'active', '在 Codex 中用五栏看板推进项目和子任务，跟进主聊天的真实执行进展。'), project('learning', '学习回顾', 'done')], tasks: [
+  task('history', 'steward', '历史聊天归类', 'idea', '先整理现有聊天的归属。'), task('criteria', 'steward', '验收标准确认', 'ready', '确认任务目标与交付要求。'), task('board', 'steward', '五栏任务看板', 'active', '已完成卡片结构，正在接入状态流转。', 'running'), task('chat', 'steward', '主聊天关联', 'review', '已支持保存聊天关联，等待确认。'), task('storage', 'steward', '本地数据存储', 'done', '数据与备份已验证。'),
+  ...Array.from({ length: 4 }, (_, i) => task(`portfolio-${i}`, 'portfolio', ['页面规划', '内容整理', '首页开发', '上线验收'][i], 'ready', '')),
+  ...Array.from({ length: 3 }, (_, i) => task(`learning-${i}`, 'learning', ['资料阅读', '学习笔记', '阶段总结'][i], 'done', '')),
+], records: [], insights: [], jobs: [], proposals: [], pendingRequests: [], workspace: 'F:\\workspace', storagePath: 'F:\\workspace\\codex-steward\\data\\steward.json', settings: { mode: 'codex', apiBaseUrl: 'https://api.openai.com/v1', model: '' } };

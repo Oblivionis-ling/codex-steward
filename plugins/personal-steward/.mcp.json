@@ -6,7 +6,10 @@
                                                 ],
                                        "env":  {
                                                    "STEWARD_WORKSPACE":  "F:\\workspace",
-                                                   "STEWARD_DATA_DIR":  "F:\\workspace\\codex-steward\\data"
+                                                   "STEWARD_BROKER":  "1",
+                                                   "STEWARD_DATA_DIR":  "F:\\workspace\\codex-steward\\data",
+                                                   "STEWARD_PORT":  "43187",
+                                                   "STEWARD_CODEX_PATH":  "C:\\Users\\Ling\\AppData\\Local\\OpenAI\\Codex\\bin\\de8a38d2100ae498\\codex.exe"
                                                },
                                        "command":  "C:\\Program Files\\nodejs\\node.exe"
                                    }

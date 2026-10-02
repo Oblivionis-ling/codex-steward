@@ -9,7 +9,7 @@ $mcpConfig = @{
     steward = @{
       command = $nodePath
       args = @((Join-Path $pluginDir 'dist\mcp.mjs'))
-      env = @{ STEWARD_DATA_DIR = (Join-Path $projectDir 'data'); STEWARD_WORKSPACE = 'F:\workspace' }
+      env = @{ STEWARD_DATA_DIR = (Join-Path $projectDir 'data'); STEWARD_WORKSPACE = 'F:\workspace'; STEWARD_BROKER = '1'; STEWARD_PORT = '43187'; STEWARD_CODEX_PATH = $codexPath }
     }
   }
 }

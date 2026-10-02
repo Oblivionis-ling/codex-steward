@@ -7,7 +7,8 @@ import { createService } from './tools.mjs';
 
 export function createHttpServer(options = {}) {
   const service = options.service ?? createService(options);
-  const uiPath = options.uiPath ?? path.resolve('plugins/personal-steward/dist/ui/index.html');
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const uiPath = options.uiPath ?? process.env.STEWARD_UI_PATH ?? (here.endsWith(`${path.sep}dist`) ? path.join(here, 'ui/index.html') : path.resolve('plugins/personal-steward/dist/ui/index.html'));
   return http.createServer(async (req, res) => {
     const json = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(data)); };
     try {
@@ -15,7 +16,7 @@ export function createHttpServer(options = {}) {
       const origin = req.headers.origin;
       if (origin && origin !== `http://${req.headers.host}`) return json(403, { error: '跨域请求已拒绝。' });
       const url = new URL(req.url, `http://${req.headers.host}`);
-      if (req.method === 'GET' && url.pathname === '/health') return json(200, { ok: true, name: 'personal-steward' });
+      if (req.method === 'GET' && url.pathname === '/health') return json(200, { ok: true, name: 'personal-steward', version: '0.2.0', dataDir: service.store.dataDir, pid: process.pid });
       if (req.method === 'GET' && url.pathname === '/') {
         const html = await readFile(uiPath, 'utf8');
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'" }); res.end(html); return;

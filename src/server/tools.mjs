@@ -2,17 +2,20 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
-import { Store, newRecord, sourceHash, requireRecord, requireJob, applyArchive, buildChat, archiveSchema, insightSchema, stateSchema, prioritySchema, recordTypeSchema, recordSchema, jobSchema } from './store.mjs';
+import { Store, newRecord, sourceHash, requireRecord, requireJob, applyArchive, buildChat, archiveSchema, insightSchema, stateSchema, importStateSchema, prioritySchema, recordTypeSchema, recordSchema, jobSchema } from './store.mjs';
 import { callProvider, insightOutputSchema, aiPrompt } from './ai.mjs';
+import { createBoard, boardSchemas, boardDescriptions } from './board.mjs';
+import { requireProject, requireUnlockedProject, newTask } from './board-model.mjs';
 
 const id = z.string().min(1).max(80);
 const object = (fields = {}) => z.object(fields);
 const ids = z.array(id).max(1000);
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal(''));
 export const toolSchemas = {
+  ...boardSchemas,
   steward_open: object(), steward_panel: object(), steward_state: object(),
-  steward_records: object({ ids: ids.optional(), from: day.optional(), to: day.optional(), includeIndex: z.boolean().optional() }),
-  steward_create: object({ type: recordTypeSchema, content: z.string().min(1).max(60000), title: z.string().max(240).optional(), priority: prioritySchema.optional(), sourceId: id.optional() }),
+  steward_records: object({ ids: ids.optional(), projectId: id.optional(), from: day.optional(), to: day.optional(), includeIndex: z.boolean().optional() }),
+  steward_create: object({ type: recordTypeSchema, content: z.string().min(1).max(60000), title: z.string().max(240).optional(), priority: prioritySchema.optional(), sourceId: id.optional(), projectId: id.optional() }),
   steward_update: object({ id, patch: object({ title: z.string().min(1).max(240).optional(), content: z.string().min(1).max(60000).optional(), type: recordTypeSchema.optional(), category: z.string().max(80).optional(), priority: prioritySchema.optional(), completed: z.boolean().optional(), tags: z.array(z.string().max(80)).max(30).optional() }) }),
   steward_chat: object({ id }),
   steward_prepare_ai: object({ type: z.enum(['archive', 'question', 'review']), ids: ids.optional(), question: z.string().max(3000).optional(), from: day.optional(), to: day.optional() }),
@@ -22,10 +25,11 @@ export const toolSchemas = {
   steward_finish_job: object({ jobId: id, error: z.string().max(2000) }),
   steward_run_ai: object({ jobId: id, provider: object({ apiBaseUrl: z.string().max(1000), apiKey: z.string().max(4000), model: z.string().max(200) }) }),
   steward_settings: object({ mode: z.enum(['codex', 'api']), apiBaseUrl: z.string().max(1000), model: z.string().max(200) }),
-  steward_export: object(), steward_import: object({ data: stateSchema }),
+  steward_export: object(), steward_import: object({ data: importStateSchema }),
 };
 
 export const toolDescriptions = {
+  ...boardDescriptions,
   steward_open: '打开个人管家：记录、待办、引用问答和阶段回顾。左侧全局入口。',
   steward_panel: '在当前聊天旁打开记录与待办面板。',
   steward_state: '读取个人信息库状态、记录、总结和整理任务进度。',
@@ -44,8 +48,9 @@ export const toolDescriptions = {
   steward_import: '合并用户选择的备份文件；同 ID 但内容不一致时停止，不覆盖已有记录。',
 };
 
-const currentSchema = stateSchema.extend({ storagePath: z.string(), workspace: z.string() });
+const currentSchema = stateSchema.extend({ storagePath: z.string(), workspace: z.string(), pendingRequests: z.array(z.unknown()), activeTaskIds: z.array(z.string()) });
 export const toolOutputSchemas = {
+  ...Object.fromEntries(Object.keys(boardSchemas).map((name) => [name, z.object({}).passthrough()])),
   steward_open: currentSchema, steward_panel: currentSchema, steward_state: currentSchema,
   steward_records: z.object({ records: z.array(recordSchema.extend({ hash: z.string() })), index: z.array(z.object({ id: z.string(), title: z.string(), summary: z.string(), tags: z.array(z.string()) })) }),
   steward_create: z.object({ record: recordSchema }), steward_update: z.object({ record: recordSchema }),
@@ -62,12 +67,14 @@ export const toolOutputSchemas = {
 export function createService(options = {}) {
   const store = options.store ?? new Store(options.dataDir ?? process.env.STEWARD_DATA_DIR ?? path.resolve('data'));
   const workspace = options.workspace ?? process.env.STEWARD_WORKSPACE ?? 'F:\\workspace';
+  const board = createBoard({ store, workspace, runtime: options.runtime });
   const running = new Set();
   const current = async () => {
+    await board.recover();
     const state = await store.read();
-    return { ...state, storagePath: store.file, workspace };
+    return { ...state, storagePath: store.file, workspace, pendingRequests: board.pending(state), activeTaskIds: state.tasks.filter((t) => t.turnId && board.runtime.activeTurns.get(t.mainChatId) === t.turnId).map((t) => t.id) };
   };
-  const selectRecords = (state, input) => state.records.filter((record) => (!input.ids || input.ids.includes(record.id)) && (!input.from || Date.parse(record.createdAt) >= Date.parse(`${input.from}T00:00:00+08:00`)) && (!input.to || Date.parse(record.createdAt) <= Date.parse(`${input.to}T23:59:59.999+08:00`)));
+  const selectRecords = (state, input) => state.records.filter((record) => (!input.projectId || record.projectId === input.projectId) && (!input.ids || input.ids.includes(record.id)) && (!input.from || Date.parse(record.createdAt) >= Date.parse(`${input.from}T00:00:00+08:00`)) && (!input.to || Date.parse(record.createdAt) <= Date.parse(`${input.to}T23:59:59.999+08:00`)));
   const relatedIndex = (state, records) => state.records.filter((record) => !records.some((item) => item.id === record.id)).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 80).map(({ id, title, summary, tags }) => ({ id, title, summary: summary.slice(0, 220), tags: tags.slice(0, 8) }));
   const saveInsight = async (jobId, result) => store.mutate((state) => {
     const job = requireJob(state, jobId);
@@ -112,6 +119,7 @@ export function createService(options = {}) {
     } finally { running.delete(jobId); }
   };
   const handlers = {
+    ...board.handlers,
     steward_open: current, steward_panel: current, steward_state: current,
     steward_records: async (input) => {
       const state = await store.read();
@@ -122,14 +130,17 @@ export function createService(options = {}) {
     },
     steward_create: async (input) => store.mutate((state) => {
       if (input.sourceId) requireRecord(state, input.sourceId);
-      const record = newRecord(input); state.records.unshift(record); return { record };
+      if (input.projectId) requireProject(state, input.projectId);
+      const record = newRecord(input);
+      if (input.type === 'todo' && input.projectId) { if (requireUnlockedProject(state, input.projectId).phase === 'done') throw new Error('请先重新打开项目。'); const task = newTask({ projectId: input.projectId, title: record.title, description: record.content }); task.sourceRecordId = record.id; state.tasks.push(task); }
+      state.records.unshift(record); return { record };
     }),
     steward_update: async ({ id: recordId, patch }) => store.mutate((state) => {
       const record = requireRecord(state, recordId);
       if (patch.completed !== undefined && record.type !== 'todo' && patch.type !== 'todo') throw new Error('只有待办可标记完成。');
       if (patch.content !== undefined && !patch.content.trim() || patch.title !== undefined && !patch.title.trim()) throw new Error('标题和正文不能为空。');
       const hash = sourceHash(record); Object.assign(record, patch); record.updatedAt = new Date().toISOString();
-      if (hash !== sourceHash(record)) { record.archived = false; record.archivedAt = null; record.summary = ''; record.keypoints = []; record.relatedIds = []; }
+      if (hash !== sourceHash(record)) { record.archived = false; record.archivedAt = null; record.summary = ''; record.keypoints = []; record.relatedIds = []; record.suggestedActions = []; }
       if (record.type !== 'todo') record.completed = false;
       return { record };
     }),
@@ -187,14 +198,29 @@ export function createService(options = {}) {
         for (const reference of [...record.relatedIds, ...(record.sourceId ? [record.sourceId] : [])]) if (!newIds.has(reference) && !state.records.some((item) => item.id === reference)) throw new Error('备份包含失效的记录关联，未导入。');
       }
       for (const insight of incoming.insights) for (const source of insight.sources) if (!newIds.has(source.recordId) && !state.records.some((record) => record.id === source.recordId)) throw new Error('备份包含失效引用，未导入。');
+      const projectIds = new Set([...state.projects, ...incoming.projects].map((p) => p.id));
+      for (const item of [...incoming.records, ...incoming.insights]) if (item.projectId && !projectIds.has(item.projectId)) throw new Error('备份包含失效的资料项目关联，未导入。');
+      for (const task of incoming.tasks) { if (!projectIds.has(task.projectId)) throw new Error('备份包含失效的项目关联，未导入。'); if (task.sourceRecordId && !newIds.has(task.sourceRecordId) && !state.records.some((r) => r.id === task.sourceRecordId)) throw new Error('备份包含失效的小卡来源，未导入。'); }
+      const mainChats = new Map();
+      for (const task of [...state.tasks, ...incoming.tasks]) if (task.mainChatId) { if (mainChats.has(task.mainChatId) && mainChats.get(task.mainChatId) !== task.id) throw new Error('备份中同一主聊天关联了多张小卡，未导入。'); mainChats.set(task.mainChatId, task.id); }
+      const persistentTask = ({ execution, runId, turnId, pendingDelivery, progress, error, ...task }) => task;
+      for (const name of ['projects', 'tasks']) {
+        if (new Set(incoming[name].map((item) => item.id)).size !== incoming[name].length) throw new Error('备份含重复任务或项目 ID，未导入。');
+        for (const item of incoming[name]) { const existing = state[name].find((x) => x.id === item.id); if (existing && JSON.stringify(name === 'tasks' ? persistentTask(existing) : existing) !== JSON.stringify(name === 'tasks' ? persistentTask(item) : item)) throw new Error('备份与现有同 ID 项目或小卡不同，未覆盖。'); }
+      }
+      if (new Set(incoming.insights.map((i) => i.id)).size !== incoming.insights.length) throw new Error('备份含重复结论 ID，未导入。');
+      for (const insight of incoming.insights) { const existing = state.insights.find((i) => i.id === insight.id); if (existing && JSON.stringify(existing) !== JSON.stringify(insight)) throw new Error('备份与现有同 ID 结论不同，未覆盖。'); }
       let count = 0;
       for (const record of incoming.records) if (!state.records.some((item) => item.id === record.id)) { state.records.push(record); count++; }
-      for (const insight of incoming.insights) if (!state.insights.some((item) => item.id === insight.id)) state.insights.push(insight);
+      for (const insight of incoming.insights) if (!state.insights.some((item) => item.id === insight.id)) { state.insights.push(insight); count++; }
+      for (const p of incoming.projects) if (!state.projects.some((x) => x.id === p.id)) { state.projects.push({ ...p, transitionId: null }); count++; }
+      for (const t of incoming.tasks) if (!state.tasks.some((x) => x.id === t.id)) { state.tasks.push({ ...t, execution: 'idle', runId: null, turnId: null, pendingDelivery: null, error: '', progress: '从备份恢复，请查看主聊天确认实际执行状态。' }); count++; }
       return { imported: count };
     }),
   };
-  return { store, current, running, async call(name, args = {}) {
+  return { store, current, running, board, async call(name, args = {}) {
     if (!Object.hasOwn(toolSchemas, name)) throw new Error('未知工具。');
+    await board.recover();
     return handlers[name](toolSchemas[name].parse(args));
   } };
 }

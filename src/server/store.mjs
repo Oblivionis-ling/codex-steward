@@ -2,29 +2,34 @@ import { randomUUID, createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { projectSchema, taskSchema, proposalSchema, migrateState } from './board-model.mjs';
 
 export const prioritySchema = z.enum(['high', 'medium', 'low']);
 export const recordTypeSchema = z.enum(['idea', 'material', 'todo']);
 const text = (max) => z.string().max(max);
+export const actionSchema = z.object({ title: text(240).min(1), content: text(2000).default(''), priority: prioritySchema });
 export const recordSchema = z.object({
   id: text(80), type: recordTypeSchema, title: text(240), content: text(60000),
   category: text(80), summary: text(1000), keypoints: z.array(text(1000)).max(30),
   tags: z.array(text(80)).max(30), priority: prioritySchema,
   completed: z.boolean(), archived: z.boolean(), sourceId: text(80).nullable(),
   relatedIds: z.array(text(80)).max(100),
+  projectId: text(80).nullable().default(null), sourceChatId: text(100).nullable().default(null), hidden: z.boolean().default(false),
+  suggestedActions: z.array(actionSchema).max(20).default([]),
   createdAt: z.string().datetime(), updatedAt: z.string().datetime(), archivedAt: z.string().datetime().nullable(),
 });
 export const archiveSchema = z.object({
   category: text(80).min(1), summary: text(1000).min(1), keypoints: z.array(text(1000)).max(30),
   tags: z.array(text(80)).max(30), priority: prioritySchema,
   relatedIds: z.array(text(80)).max(100).default([]),
-  actions: z.array(z.object({ title: text(240).min(1), content: text(2000).default(''), priority: prioritySchema })).max(20).default([]),
+  actions: z.array(actionSchema).max(20).default([]),
 });
 export const insightSchema = z.object({
   id: text(80), type: z.enum(['question', 'review']), question: text(3000), answer: text(30000),
   sources: z.array(z.object({ recordId: text(80), note: text(500) })).max(300),
   actions: z.array(z.object({ title: text(240), content: text(2000).default(''), priority: prioritySchema })).max(30),
   from: text(30), to: text(30), createdAt: z.string().datetime(),
+  projectId: text(80).nullable().default(null),
 });
 export const jobSchema = z.object({
   id: text(80), type: z.enum(['archive', 'question', 'review']), status: z.enum(['waiting', 'running', 'done', 'error', 'cancelled']),
@@ -33,10 +38,12 @@ export const jobSchema = z.object({
   question: text(3000), from: text(30), to: text(30), createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
 });
 export const stateSchema = z.object({
-  version: z.literal(1), records: z.array(recordSchema).max(100000), insights: z.array(insightSchema).max(10000),
+  version: z.literal(2), records: z.array(recordSchema).max(100000), insights: z.array(insightSchema).max(10000),
+  projects: z.array(projectSchema).max(10000), tasks: z.array(taskSchema).max(100000), proposals: z.array(proposalSchema).max(1000),
   jobs: z.array(jobSchema).max(200), settings: z.object({ mode: z.enum(['codex', 'api']), apiBaseUrl: text(1000), model: text(200) }),
 });
-export const emptyState = () => ({ version: 1, records: [], insights: [], jobs: [], settings: { mode: 'codex', apiBaseUrl: 'https://api.openai.com/v1', model: '' } });
+export const importStateSchema = z.preprocess(migrateState, stateSchema);
+export const emptyState = () => ({ version: 2, records: [], insights: [], jobs: [], projects: [], tasks: [], proposals: [], settings: { mode: 'codex', apiBaseUrl: 'https://api.openai.com/v1', model: '' } });
 export const sourceHash = (record) => createHash('sha256').update(JSON.stringify([record.type, record.title, record.content])).digest('hex');
 export function newRecord(input) {
   const now = new Date().toISOString();
@@ -45,7 +52,7 @@ export function newRecord(input) {
   return recordSchema.parse({
     id: randomUUID(), type: input.type ?? 'idea', title: input.title?.trim() || content.split(/\r?\n/)[0].slice(0, 100), content,
     category: input.category ?? '', summary: '', keypoints: [], tags: [], priority: input.priority ?? 'medium',
-    completed: false, archived: false, sourceId: input.sourceId ?? null, relatedIds: [], createdAt: now, updatedAt: now, archivedAt: null,
+    completed: false, archived: false, sourceId: input.sourceId ?? null, relatedIds: [], projectId: input.projectId ?? null, sourceChatId: input.sourceChatId ?? null, createdAt: now, updatedAt: now, archivedAt: null,
   });
 }
 
@@ -54,7 +61,7 @@ export class Store {
   async read() {
     try {
       const raw = await fs.readFile(this.file, 'utf8');
-      return stateSchema.parse(JSON.parse(raw));
+      return stateSchema.parse(migrateState(JSON.parse(raw)));
     } catch (error) {
       if (error.code === 'ENOENT') return emptyState();
       throw new Error('本地数据文件无法读取；已保留原文件，请检查 steward.json 或其 .bak 备份。');
@@ -84,6 +91,13 @@ export class Store {
       const state = await this.read();
       const result = await fn(state);
       stateSchema.parse(state);
+      try {
+        const original = await fs.readFile(this.file, 'utf8');
+        if (JSON.parse(original).version === 1) {
+          const hash = createHash('sha256').update(original).digest('hex').slice(0, 12);
+          await fs.writeFile(path.join(this.dataDir, `steward.v1.${hash}.backup.json`), original, { flag: 'wx' }).catch((error) => { if (error.code !== 'EEXIST') throw error; });
+        }
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
       const file = await fs.open(temporary, 'wx');
       try { await file.writeFile(`${JSON.stringify(state, null, 2)}\n`); await file.sync(); } finally { await file.close(); }
       try { await fs.copyFile(this.file, `${this.file}.bak`); } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -116,10 +130,11 @@ export function applyArchive(state, { id, analysis, hash, jobId }) {
   if (sourceHash(record) !== (hash || job?.sourceHashes[id])) throw new Error('记录内容已修改，请重新归档。');
   const normalized = archiveSchema.parse(analysis);
   for (const relatedId of normalized.relatedIds) requireRecord(state, relatedId);
-  Object.assign(record, normalized, { relatedIds: normalized.relatedIds.filter((relatedId) => relatedId !== id), archived: true, archivedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  Object.assign(record, normalized, { suggestedActions: record.projectId ? normalized.actions : [], relatedIds: normalized.relatedIds.filter((relatedId) => relatedId !== id), archived: true, archivedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   delete record.actions;
   const created = [];
   for (const action of normalized.actions) {
+    if (record.projectId) continue; // Project actions require the user's selection before becoming cards.
     if (record.type === 'todo' && action.title.trim() === record.title.trim()) continue;
     const key = action.title.replace(/\s+/g, '').toLowerCase();
     if (state.records.some((item) => item.type === 'todo' && item.sourceId === id && item.title.replace(/\s+/g, '').toLowerCase() === key)) continue;
