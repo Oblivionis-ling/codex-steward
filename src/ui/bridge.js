@@ -8,7 +8,7 @@ export const saveLocalValue = (key, value) => { try { localStorage.setItem(`stew
 export async function connect() {
   if (!embedded) return;
   if (connecting) return connecting;
-  app = new App({ name: 'personal-steward', version: '0.2.0' });
+  app = new App({ name: 'personal-steward', version: '0.2.1' });
   extensions = new OpenAIExtensions(app);
   app.ontoolresult = (result) => {
     if (result.structuredContent?.version === 2 && Array.isArray(result.structuredContent.projects) && Array.isArray(result.structuredContent.tasks)) { initialState = result.structuredContent; window.dispatchEvent(new CustomEvent('steward:state', { detail: initialState })); }

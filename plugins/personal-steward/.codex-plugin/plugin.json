@@ -1,6 +1,6 @@
 {
   "name": "personal-steward",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "五栏项目与子任务看板；确认验收标准后直接启动主聊天，跟进进展、验收与项目资料。",
   "mcpServers": "./.mcp.json",
   "interface": {

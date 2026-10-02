@@ -7,7 +7,8 @@ import { Store, newRecord, sourceHash } from '../src/server/store.mjs';
 import { taskHash } from '../src/server/board-model.mjs';
 import { MockCodex } from './fixtures/mock-codex.mjs';
 
-async function setup() { await fs.mkdir('_work', { recursive: true }); const dataDir = await fs.mkdtemp(path.resolve('_work/board-test-')); const runtime = new MockCodex(); const service = createService({ dataDir, runtime }); const { project } = await service.call('steward_project_create', { title: '测试项目', goal: '验证真实推进闭环' }); return { service, runtime, project, dataDir }; }
+async function emptySetup() { await fs.mkdir('_work', { recursive: true }); const dataDir = await fs.mkdtemp(path.resolve('_work/board-test-')); const runtime = new MockCodex(); const service = createService({ dataDir, runtime }); return { service, runtime, dataDir }; }
+async function setup() { const context = await emptySetup(); const { project } = await context.service.call('steward_project_create', { title: '测试项目', goal: '验证真实推进闭环' }); return { ...context, project }; }
 async function ready(service, projectId, title = '测试小卡') { const { task } = await service.call('steward_task_create', { projectId, title, description: '制作可验收的结果' }); await service.call('steward_task_move', { id: task.id, phase: 'ready' }); await service.call('steward_task_update', { id: task.id, title, description: task.description, criteria: ['结果可以打开并验证'] }); return task.id; }
 const reportFor = (task) => ({ summary: '结果已交付', checks: task.criteria.map((criterion) => ({ criterion, passed: true, evidence: '真实验证结果在所关联主聊天中' })), materials: [{ title: '项目决定', content: '保存一条可复用结论' }] });
 async function deliver(service, runtime, task) { await service.call('steward_submit_delivery', { id: task.id, runId: task.runId, hash: task.confirmedHash, report: reportFor(task) }); runtime.complete(task.mainChatId); await service.board.flush(); }
@@ -103,6 +104,57 @@ test('项目归档行动建议需用户确认，重复确认不重复建卡', as
   await service.call('steward_apply_archive', { id: record.id, hash: sourceHash(record), analysis }); let state = await service.current(); assert.equal(state.tasks.length, 0); assert.equal(state.records.length, 1);
   const args = { id: record.id, expectedUpdatedAt: state.records[0].updatedAt, indexes: [0] }; await service.call('steward_accept_actions', args); await service.call('steward_accept_actions', args);
   state = await service.current(); assert.equal(state.tasks.length, 1); assert.equal(state.tasks[0].sourceRecordId, record.id); assert.equal(state.tasks[0].phase, 'idea'); assert.equal(state.tasks[0].confirmedHash, null);
+});
+
+test('空看板直接整理所选聊天，确认前不建卡，同组聊天合为一个大卡', async () => {
+  const { service, runtime, dataDir } = await emptySetup();
+  await service.store.mutate((s) => { for (let i = 0; i < 7; i++) s.records.push(newRecord({ type: 'material', title: '不相关资料', content: '未选资料'.repeat(8000) })); });
+  for (const id of ['selected-a', 'selected-b', 'not-selected']) runtime.threads.set(id, { id, name: id, turns: [] });
+  const { proposal } = await service.call('steward_propose', { type: 'history', chatIds: ['selected-a', 'selected-b'] });
+  assert.equal(proposal.projectId, null); assert.equal((await service.current()).projects.length, 0); assert.equal(runtime.starts[0].prompt.includes('不相关资料'), false); assert.deepEqual(proposal.sourceHashes, {});
+  const assignments = ['selected-a', 'selected-b'].map((chatId, i) => ({ chatId, projectId: null, projectTitle: '同一长期项目', taskId: null, title: `子任务 ${i + 1}`, description: '从已选聊天提取的目标' }));
+  runtime.complete(proposal.chatId, 'completed', { assignments }); await service.board.flush();
+  const restored = createService({ dataDir, runtime: new MockCodex() }); const draftState = await restored.current();
+  assert.equal(draftState.projects.length, 0); assert.equal(draftState.tasks.length, 0); assert.equal(draftState.proposals[0].status, 'ready');
+  assert.equal(runtime.historyReads.includes('not-selected'), false); assert.equal(runtime.starts.length, 1); assert.equal(runtime.starts[0].context.kind, 'proposal');
+  await assert.rejects(service.call('steward_apply_proposal', { id: proposal.id, assignments: [{ ...assignments[0], chatId: 'not-selected' }] }), /所选/);
+  assert.equal((await service.current()).projects.length, 0);
+  const result = await service.call('steward_apply_proposal', { id: proposal.id, assignments }); const state = await service.current();
+  assert.equal(state.projects.length, 1); assert.equal(state.tasks.length, 2); assert.deepEqual(result.projectIds, [state.projects[0].id]);
+  assert.ok(state.tasks.every((t) => t.phase === 'idea' && t.confirmedHash === null && t.projectId === state.projects[0].id));
+  assert.deepEqual(state.tasks.map((t) => t.mainChatId).sort(), ['selected-a', 'selected-b']);
+  await assert.rejects(service.call('steward_apply_proposal', { id: proposal.id, assignments }), /已应用/);
+});
+
+test('首页整理可归入已有小卡，尊重项目停止锁并保留原说明与主聊天', async () => {
+  const { service, runtime, project } = await setup(); const taskId = await ready(service, project.id, '用户的小卡');
+  for (const id of ['existing-main', 'selected-history']) runtime.threads.set(id, { id, name: id, turns: [] });
+  await service.call('steward_chat_attach', { taskId, chatId: 'existing-main', main: true }); await service.call('steward_task_confirm', { id: taskId });
+  const before = (await service.current()).tasks[0];
+  const { proposal } = await service.call('steward_propose', { projectId: null, type: 'history', chatIds: ['selected-history'] });
+  const assignments = [{ chatId: 'selected-history', projectId: project.id, projectTitle: '', taskId, title: '模型拟定的新名称', description: '模型拟定的新说明' }];
+  runtime.complete(proposal.chatId, 'completed', { assignments }); await service.board.flush();
+  await service.store.mutate((s) => { s.projects[0].transitionId = 'another-window-stopping'; });
+  await assert.rejects(service.call('steward_apply_proposal', { id: proposal.id, assignments }), /正在停止/);
+  await service.store.mutate((s) => { s.projects[0].transitionId = null; });
+  const result = await service.call('steward_apply_proposal', { id: proposal.id, assignments }); const state = await service.current();
+  assert.equal(state.projects.length, 1); assert.equal(state.tasks.length, 1); assert.equal(state.tasks[0].title, before.title); assert.equal(state.tasks[0].description, before.description);
+  assert.equal(state.tasks[0].confirmedHash, before.confirmedHash); assert.equal(state.tasks[0].mainChatId, 'existing-main'); assert.deepEqual(state.tasks[0].relatedChatIds, ['selected-history']); assert.deepEqual(result.projectIds, [project.id]);
+});
+
+test('只有历史整理允许不选项目，无选择或重复选择不读取聊天也不产生草案', async () => {
+  const { service, runtime } = await emptySetup();
+  for (const type of ['split', 'criteria', 'question', 'review']) await assert.rejects(service.call('steward_propose', { type }), /选择项目/);
+  await assert.rejects(service.call('steward_propose', { type: 'history' }), /来源聊天/);
+  await assert.rejects(service.call('steward_propose', { type: 'history', chatIds: ['duplicate', 'duplicate'] }), /不重复/);
+  const state = await service.current(); assert.equal(state.projects.length, 0); assert.equal(state.proposals.length, 0); assert.equal(runtime.historyReads.length, 0); assert.equal(runtime.starts.length, 0);
+});
+
+test('多个窗口同时开始首页整理只建立一个生成回合', async () => {
+  const { service, runtime } = await emptySetup(); runtime.threads.set('selected', { id: 'selected', name: '已选聊天', turns: [] });
+  const input = { type: 'history', chatIds: ['selected'] }; const results = await Promise.allSettled([service.call('steward_propose', input), service.call('steward_propose', input)]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1); assert.match(results.find((r) => r.status === 'rejected').reason.message, /已有同类草案/);
+  assert.equal(runtime.starts.length, 1); assert.equal((await service.current()).proposals.length, 1); assert.equal((await service.current()).projects.length, 0);
 });
 
 test('大卡回退等待停止时，其他窗口不能新增或启动遗漏的小卡', async () => {

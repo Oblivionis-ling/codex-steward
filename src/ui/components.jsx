@@ -8,6 +8,7 @@ export function Overlay({ title, subtitle, close, children, className = '' }) {
     const previous = document.activeElement;
     dialog.current?.querySelector('button, input, textarea, select, a')?.focus();
     const trap = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); close(); return; }
       if (event.key !== 'Tab') return;
       const controls = [...dialog.current.querySelectorAll('button:not(:disabled), input:not([type=file]), textarea, select, a[href]')].filter((element) => element.getClientRects().length);
       const first = controls[0], last = controls.at(-1);
@@ -17,7 +18,7 @@ export function Overlay({ title, subtitle, close, children, className = '' }) {
     document.addEventListener('keydown', trap);
     return () => { document.removeEventListener('keydown', trap); previous?.focus(); };
   }, []);
-  return <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><section ref={dialog} className={`dialog ${className}`} role="dialog" aria-modal="true" aria-label={title} onKeyDown={(event) => { if (event.key === 'Escape') close(); }}><header><div>{subtitle && <p className="project-context">{subtitle}</p>}<h2>{title}</h2></div><button className="icon-button" aria-label="关闭" onClick={close}><Icon as={X}/></button></header>{children}</section></div>;
+  return <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><section ref={dialog} className={`dialog ${className}`} role="dialog" aria-modal="true" aria-label={title}><header><div>{subtitle && <p className="project-context">{subtitle}</p>}<h2>{title}</h2></div><button className="icon-button" aria-label="关闭" onClick={close}><Icon as={X}/></button></header>{children}</section></div>;
 }
 export function Insight({ item, records, tasks = [], actionsDisabled = false, openRecord, addTodo }) {
   const answer = item.answer.split(/(\[\d+\])/).map((part, index) => {
