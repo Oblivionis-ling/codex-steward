@@ -18,4 +18,4 @@ $mcpConfig = @{
 if ($LASTEXITCODE -ne 0) { throw '本地市场注册失败。' }
 & $codexPath plugin add 'personal-steward@ling-local' --json
 if ($LASTEXITCODE -ne 0) { throw '插件安装失败。' }
-Write-Output '灵感工作台 0.3.1 已安装。新聊天会加载工具与工作流技能；桌面侧栏入口可能需要重新打开应用后刷新。'
+Write-Output '灵感工作台 0.3.2 已安装。新聊天会加载工具与工作流技能；桌面侧栏入口可能需要重新打开应用后刷新。'
