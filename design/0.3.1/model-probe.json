@@ -1,0 +1,230 @@
+{
+  "at": "2026-10-03T09:06:15.576Z",
+  "status": "ready",
+  "error": "",
+  "result": {
+    "assignments": [
+      {
+        "chatId": "case-idea",
+        "title": "桌面整理小工具构想",
+        "description": "构思一个整理桌面的小工具，具体需求与实施目标尚未展开。",
+        "labels": [
+          "桌面整理",
+          "工具构想"
+        ],
+        "phase": "idea",
+        "assessment": {
+          "summary": "仅记录了零散想法，尚未展开需求讨论或制作。",
+          "reason": "用户明确表示随手记录、以后再考虑，项目仍处于想法阶段。",
+          "confidence": "high",
+          "evidence": [
+            {
+              "turnId": "idea-1",
+              "role": "user",
+              "quote": "随手记一个想法：做个整理桌面的小工具，以后有空再考虑。"
+            }
+          ],
+          "milestones": []
+        }
+      },
+      {
+        "chatId": "case-shaping",
+        "title": "项目需求澄清与方案调研",
+        "description": "通过需求盘问与开发前调研，确定目标用户、使用方式和项目方案。",
+        "labels": [
+          "需求澄清",
+          "方案调研"
+        ],
+        "phase": "shaping",
+        "assessment": {
+          "summary": "正在澄清需求，目标用户和使用方式尚未确定，未开始制作。",
+          "reason": "用户明确要求只做开发前盘问与调研，并暂不制作目标产物；助手也确认需求仍待澄清。",
+          "confidence": "high",
+          "evidence": [
+            {
+              "turnId": "shaping-1",
+              "role": "user",
+              "quote": "先用 grill-me 盘问需求，做开发前方案调研，先不要制作。"
+            },
+            {
+              "turnId": "shaping-1",
+              "role": "assistant",
+              "quote": "目标用户和使用方式还没确定，继续澄清需求。"
+            }
+          ],
+          "milestones": []
+        }
+      },
+      {
+        "chatId": "case-building",
+        "title": "工具首版制作与持续迭代",
+        "description": "按方案制作工具，并通过下一版需求澄清与方案调研持续完善。",
+        "labels": [
+          "工具开发",
+          "版本迭代"
+        ],
+        "phase": "building",
+        "assessment": {
+          "summary": "首版代码已实现，项目仍需迭代，当前推进下一版需求与方案调研。",
+          "reason": "项目已开始制作，首版试用属于阶段进展。后续盘问和调研服务于持续迭代，没有整体交付送验或明确退回重新构思。",
+          "confidence": "high",
+          "evidence": [
+            {
+              "turnId": "building-1",
+              "role": "user",
+              "quote": "按照方案制作第一版工具。"
+            },
+            {
+              "turnId": "building-1",
+              "role": "assistant",
+              "quote": "首版代码已经实现，可以先试试，还需要继续迭代。"
+            },
+            {
+              "turnId": "building-2",
+              "role": "user",
+              "quote": "对下一版盘问需求，并调研新的方案。"
+            }
+          ],
+          "milestones": [
+            {
+              "turnId": "building-1",
+              "role": "user",
+              "quote": "按照方案制作第一版工具。",
+              "kind": "work_started"
+            },
+            {
+              "turnId": "building-2",
+              "role": "user",
+              "quote": "对下一版盘问需求，并调研新的方案。",
+              "kind": "change_requested"
+            }
+          ]
+        }
+      },
+      {
+        "chatId": "case-review",
+        "title": "本地文本字数统计页面",
+        "description": "制作仅在本地统计并展示文本字数的页面，完成约定范围并提交最终验收。",
+        "labels": [
+          "本地页面",
+          "字数统计"
+        ],
+        "phase": "review",
+        "assessment": {
+          "summary": "助手报告整体目标已完整交付、全部检查通过且无未完成项，已提交用户最终验收。",
+          "reason": "用户限定了完整功能范围，助手明确宣布整个目标交付并请求最终验收；记录中尚无用户验收通过的确认。",
+          "confidence": "high",
+          "evidence": [
+            {
+              "turnId": "review-1",
+              "role": "user",
+              "quote": "请制作一个只有本地文本统计功能的页面，目标是展示字数，不需要后续功能。"
+            },
+            {
+              "turnId": "review-1",
+              "role": "assistant",
+              "quote": "整个约定目标已完整交付，全部检查通过，没有未完成项，现在请你最终验收。"
+            }
+          ],
+          "milestones": [
+            {
+              "turnId": "review-1",
+              "role": "user",
+              "quote": "请制作一个只有本地文本统计功能的页面，目标是展示字数，不需要后续功能。",
+              "kind": "work_started"
+            },
+            {
+              "turnId": "review-1",
+              "role": "assistant",
+              "quote": "整个约定目标已完整交付，全部检查通过，没有未完成项，现在请你最终验收。",
+              "kind": "handoff"
+            }
+          ]
+        }
+      },
+      {
+        "chatId": "case-done",
+        "title": "本地时钟页面",
+        "description": "制作仅显示时钟的本地页面，并完成用户最终验收。",
+        "labels": [
+          "本地页面",
+          "时钟"
+        ],
+        "phase": "done",
+        "assessment": {
+          "summary": "页面已完整交付，用户检查实际成果后明确确认整个项目验收通过并结项。",
+          "reason": "记录依次包含制作请求、整体交付送验和用户全项目验收确认，之后没有新的修改请求。",
+          "confidence": "high",
+          "evidence": [
+            {
+              "turnId": "done-1",
+              "role": "user",
+              "quote": "制作仅显示时钟的本地页面，完成后给我最终验收。"
+            },
+            {
+              "turnId": "done-1",
+              "role": "assistant",
+              "quote": "整个目标已完整交付，检查通过，请最终验收。"
+            },
+            {
+              "turnId": "done-2",
+              "role": "user",
+              "quote": "我已检查实际成果，整个项目验收通过，结项。"
+            }
+          ],
+          "milestones": [
+            {
+              "turnId": "done-1",
+              "role": "user",
+              "quote": "制作仅显示时钟的本地页面，完成后给我最终验收。",
+              "kind": "work_started"
+            },
+            {
+              "turnId": "done-1",
+              "role": "assistant",
+              "quote": "整个目标已完整交付，检查通过，请最终验收。",
+              "kind": "handoff"
+            },
+            {
+              "turnId": "done-2",
+              "role": "user",
+              "quote": "我已检查实际成果，整个项目验收通过，结项。",
+              "kind": "accepted"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "sourceType": "synthetic",
+  "expected": {
+    "case-idea": "idea",
+    "case-shaping": "shaping",
+    "case-building": "building",
+    "case-review": "review",
+    "case-done": "done"
+  },
+  "expectedMatch": true,
+  "rawPhases": [
+    {
+      "chatId": "case-idea",
+      "phase": "idea"
+    },
+    {
+      "chatId": "case-shaping",
+      "phase": "shaping"
+    },
+    {
+      "chatId": "case-building",
+      "phase": "building"
+    },
+    {
+      "chatId": "case-review",
+      "phase": "review"
+    },
+    {
+      "chatId": "case-done",
+      "phase": "done"
+    }
+  ]
+}

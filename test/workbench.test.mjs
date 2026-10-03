@@ -118,9 +118,20 @@ test('聊天分析仅生成草案，确认后建单卡；来源变化时整批�
 
 test('原文引用必须匹配，无用户验收只能待验收，构思执行状态与阶段分离',() => {
   const t=thread('one');assert.throws(() => validateProgress({...suggestion('one'),assessment:{...suggestion('one').assessment,evidence:[{turnId:'fake',role:'user',quote:'不存在'}]}},t),/核对/);
-  const a={...suggestion('one','done'),assessment:{...suggestion('one').assessment,evidence:[{turnId:'t1',role:'assistant',quote:'完成了'}]}};
-  const assistant={...t,turns:[{id:'t1',status:'completed',items:[{type:'agentMessage',text:'完成了'}]}]};assert.equal(validateProgress(a,assistant).phase,'review');
+  const quote='全部目标已交付，请最终验收';
+  const a={...suggestion('one','done'),assessment:{...suggestion('one').assessment,evidence:[{turnId:'t1',role:'assistant',quote}],milestones:[{kind:'handoff',turnId:'t1',role:'assistant',quote}]}};
+  const assistant={...t,turns:[{id:'t1',status:'completed',items:[{type:'agentMessage',text:quote}]}]};assert.equal(validateProgress(a,assistant).phase,'review');
   assert.equal(validateProgress(suggestion('one'),{...t,status:{type:'active'}}).phase,'shaping');
+});
+
+test('完整历程校正自动整理建议；保存时保留用户手动选择的阶段',async (t) => {
+  const runtime=new NativeMock();runtime.threads.set('one',thread('one','请制作第一版'));
+  const a={...suggestion('one'),assessment:{...suggestion('one').assessment,evidence:[{turnId:'t1',role:'user',quote:'请制作第一版'}],milestones:[{kind:'work_started',turnId:'t1',role:'user',quote:'请制作第一版'}]}};
+  const s=await fixture(t,{runtime,analyze:async () => ({assignments:[a]})});
+  const {job}=await s.call('steward_history_analyze',{chatIds:['one']});await s.settle();
+  const suggested=s.store.jobs().find((j) => j.id===job.id).result.assignments[0];assert.equal(suggested.phase,'building');
+  await s.call('steward_history_apply',{jobId:job.id,assignments:[{...suggested,phase:'shaping'}]});
+  assert.equal(s.store.cards()[0].phase,'shaping');assert.equal(s.store.cards()[0].threadId,'one');
 });
 
 test('列表包括workspace子目录，避免相近目录误入；所有本机范围不漏其它项目',async () => {

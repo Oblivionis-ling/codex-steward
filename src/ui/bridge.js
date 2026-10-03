@@ -1,5 +1,6 @@
 import { App } from '@modelcontextprotocol/ext-apps';
 import { OpenAIExtensions } from '@openai/mcp-extensions/app';
+import { WORKFLOW_VERSION } from '../shared/workflow.js';
 
 let app, extensions, initialState, connecting;
 const embedded = window.parent !== window;
@@ -14,7 +15,7 @@ export const saveLocalValue = (key, value) => { try { localStorage.setItem(`stew
 export async function connect() {
   if (!embedded) return;
   if (connecting) return connecting;
-  app = new App({ name: 'personal-steward', version: '0.3.0' });
+  app = new App({ name: 'personal-steward', version: WORKFLOW_VERSION });
   extensions = new OpenAIExtensions(app);
   app.ontoolresult = (result) => {
     if (result.structuredContent?.version === 3 && Array.isArray(result.structuredContent.cards)) { initialState = result.structuredContent; window.dispatchEvent(new CustomEvent('steward:state', { detail: initialState })); }

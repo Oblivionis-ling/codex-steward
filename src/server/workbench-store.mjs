@@ -116,6 +116,18 @@ export class WorkbenchStore {
   importJob(job) { this.db.database.prepare('INSERT INTO steward_imports VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(job.id, JSON.stringify(job)); return job; }
   jobs() { return this.db.database.prepare('SELECT data FROM steward_imports').all().map((r) => JSON.parse(r.data)).sort((a,b) => b.createdAt.localeCompare(a.createdAt)); }
   migration() { return JSON.parse(this.db.database.prepare("SELECT data FROM steward_meta WHERE key='legacyMigration'").get()?.data || 'null'); }
+  clearRecords() {
+    const counts={cards:this.cards().length,archivedCards:this.cards({archived:true}).length,imports:this.jobs().length};
+    this.db.database.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.database.exec('DELETE FROM steward_details; DELETE FROM tasks; DELETE FROM steward_imports; DELETE FROM steward_meta; DELETE FROM ai_chat_threads; DELETE FROM projects; UPDATE comment_attachment_revision SET value=0;');
+      const at = new Date().toISOString();
+      this.db.database.prepare("INSERT INTO projects (id, name, workspace_path, next_task_number, created_at, updated_at) VALUES ('local', '全局', NULL, 1, ?, ?)").run(at, at);
+      this.db.database.prepare('INSERT INTO steward_meta VALUES (?, ?)').run('lastReset',JSON.stringify({at,counts}));
+      this.db.database.exec('COMMIT');
+    } catch (e) {this.db.database.exec('ROLLBACK');throw e;}
+    return counts;
+  }
   close() { this.db.close(); }
 }
 

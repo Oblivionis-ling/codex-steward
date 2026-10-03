@@ -14,7 +14,7 @@ if (!h) {
   child.unref(); child.on('error', () => {});
   for (let i=0; i<50 && !h; i++) { await new Promise((resolve) => setTimeout(resolve,100)); h=await health(); }
 }
-if (!h || h.name !== 'personal-steward' || h.version !== '0.3.0' || path.resolve(h.dataDir) !== path.resolve(config.env.STEWARD_DATA_DIR)) throw new Error('工作台未启动或版本/数据目录不匹配，请重新打开灵感工作台。');
+if (!h || h.name !== 'personal-steward' || h.version !== '0.3.1' || path.resolve(h.dataDir) !== path.resolve(config.env.STEWARD_DATA_DIR)) throw new Error('工作台未启动或版本/数据目录不匹配，请重新打开灵感工作台。');
 const [operation,...args] = process.argv.slice(2);
 let name, input;
 if (operation === 'read') { name='steward_card_read'; input={id:args[0]}; }

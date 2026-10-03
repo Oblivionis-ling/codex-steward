@@ -1,6 +1,6 @@
 {
   "name": "personal-steward",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "灵感工作台：收集零散想法，在原生 Codex 中构思、盘问、调研，再开始实施。",
   "mcpServers": "./.mcp.json",
   "skills": "./skills/",
